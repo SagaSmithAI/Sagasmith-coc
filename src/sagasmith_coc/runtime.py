@@ -1,0 +1,19 @@
+"""CoC service construction and optional dense retrieval."""
+
+from __future__ import annotations
+
+import os
+
+from sagasmith_core import BgeEmbedder, Database, VectorStore, create_embedder
+
+
+def database() -> Database:
+    value = Database(os.environ.get("COC7_DATABASE_URL"))
+    value.upgrade_schema()
+    return value
+
+
+def dense_components() -> tuple[BgeEmbedder | None, VectorStore | None]:
+    if os.environ.get("COC7_DENSE_ENABLED", "0") != "1":
+        return None, None
+    return create_embedder(env_prefix="COC7"), VectorStore("coc7e")
