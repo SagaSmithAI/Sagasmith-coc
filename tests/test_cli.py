@@ -86,6 +86,23 @@ def test_coc_skill_cli_vertical_slice(tmp_path: Path, monkeypatch, capsys) -> No
     assert code == 0
     assert result["data"]["success"] is True
 
+    _, validated = _call(
+        capsys,
+        "investigator",
+        "validate",
+        "--sheet",
+        '{"characteristics":{"str":70,"siz":65,"pow":60}}',
+    )
+    assert validated["data"]["damage_bonus"] == "1D4"
+    _, opposed = _call(
+        capsys,
+        "check",
+        "opposed",
+        "--payload",
+        '{"attacker_roll":20,"attacker_threshold":60,"defender_roll":45,"defender_threshold":50}',
+    )
+    assert opposed["data"]["winner"] == "attacker"
+
     code, attack = _call(
         capsys,
         "combat",

@@ -11,7 +11,7 @@ COC 战斗核心机制:
 """
 
 from ..dice.rolls import roll_dice_expression
-from .skill import SuccessLevel, resolve_skill_check
+from .skill import SuccessLevel, resolve_opposed_check, resolve_skill_check
 
 
 def resolve_melee_attack(
@@ -21,6 +21,8 @@ def resolve_melee_attack(
     weapon_damage: str | None = None,
     target_dodge: int | None = None,
     target_fighting: int | None = None,
+    target_roll: int | None = None,
+    defense: str = "dodge",
     bonus_dice: int = 0,
     penalty_dice: int = 0,
     attacker_name: str = "",
@@ -89,22 +91,24 @@ def resolve_melee_attack(
         }
 
     # 目标防御检定（默认用闪避）
-    target_skill_name = (
-        "闪避"
-        if target_dodge
-        and (target_fighting is None or target_dodge >= target_fighting)
-        else "格斗"
-    )
+    target_skill_name = "闪避" if defense == "dodge" else "格斗"
     target_skill_value = target_dodge if target_skill_name == "闪避" else (target_fighting or 0)
 
-    if target_skill_value is None or target_skill_value <= 0:
+    if target_skill_value is None or target_skill_value <= 0 or target_roll is None:
         # 目标无防御技能，自动失败
         target_level = SuccessLevel.FAILURE
         detail_lines.append(f"  → 目标无{target_skill_name}技能，自动失败")
     else:
-        # 目标进行防御检定（d100 由引擎外提供）
-        target_level = SuccessLevel.FAILURE  # 占位，实际需传入
-        detail_lines.append(f"  → 目标{target_skill_name} {target_skill_value}% (待同步)")
+        opposed = resolve_opposed_check(
+            d100_result,
+            skill_value,
+            target_roll,
+            target_skill_value,
+        )
+        target_level = opposed["defender"]["success_level"]
+        detail_lines.append(
+            f"  → 目标{target_skill_name} {target_skill_value}%：d100={target_roll}"
+        )
 
     # 比较成功等级
     attack_level = attack_result["success_level"]
@@ -112,7 +116,8 @@ def resolve_melee_attack(
     if target_level < SuccessLevel.FAILURE:
         target_level = SuccessLevel.FAILURE
 
-    if attack_level > target_level:
+    wins_tie = defense == "fight-back"
+    if attack_level > target_level or (wins_tie and attack_level == target_level):
         # 命中
         damage = _calc_weapon_damage(
             weapon_damage, damage_bonus, critical=attack_result["is_critical"]

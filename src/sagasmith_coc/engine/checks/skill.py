@@ -263,6 +263,51 @@ def resolve_skill_check(
     }
 
 
+def resolve_opposed_check(
+    attacker_roll: int,
+    attacker_threshold: int,
+    defender_roll: int,
+    defender_threshold: int,
+    *,
+    tie_breaker: str = "higher-skill",
+) -> dict:
+    """Resolve a two-party opposed roll using success level then a stable tie break."""
+    attacker = resolve_skill_check(attacker_roll, attacker_threshold)
+    defender = resolve_skill_check(defender_roll, defender_threshold)
+    attacker_level = attacker["success_level"]
+    defender_level = defender["success_level"]
+    winner: str | None
+    if attacker_level > defender_level:
+        winner = "attacker"
+    elif defender_level > attacker_level:
+        winner = "defender"
+    elif attacker_level < SuccessLevel.REGULAR:
+        winner = None
+    elif tie_breaker == "lower-roll":
+        winner = (
+            "attacker"
+            if attacker_roll < defender_roll
+            else "defender"
+            if defender_roll < attacker_roll
+            else None
+        )
+    else:
+        winner = (
+            "attacker"
+            if attacker_threshold > defender_threshold
+            else "defender"
+            if defender_threshold > attacker_threshold
+            else None
+        )
+    return {
+        "attacker": attacker,
+        "defender": defender,
+        "winner": winner,
+        "tie": winner is None and attacker_level == defender_level,
+        "tie_breaker": tie_breaker,
+    }
+
+
 def _luck_required(current: int, target_range: list[int] | None) -> int:
     """计算从 current 降到 target_range 所需幸运值"""
     if target_range is None:

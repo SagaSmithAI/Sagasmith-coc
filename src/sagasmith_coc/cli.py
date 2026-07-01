@@ -27,7 +27,7 @@ from sagasmith_coc import __version__
 from sagasmith_coc.engine.checks.chase import resolve_chase_action, resolve_chase_speed_check
 from sagasmith_coc.engine.checks.combat import resolve_melee_attack, resolve_ranged_attack
 from sagasmith_coc.engine.checks.sanity import resolve_sanity_loss, roll_bout_of_madness
-from sagasmith_coc.engine.checks.skill import resolve_skill_check
+from sagasmith_coc.engine.checks.skill import resolve_opposed_check, resolve_skill_check
 from sagasmith_coc.engine.development import (
     resolve_luck_development,
     resolve_skill_development,
@@ -272,6 +272,8 @@ def _dispatch(args) -> Any:
                 )
 
         if args.group in {"investigator", "character"}:
+            if args.action == "validate":
+                return validate_investigator_sheet(_dict(args.sheet))
             if args.action == "create":
                 return asdict(
                     characters.create(
@@ -551,8 +553,28 @@ def _dispatch(args) -> Any:
                 bonus_dice=args.bonus_dice,
                 penalty_dice=args.penalty_dice,
             )
+        if args.group == "check" and args.action == "opposed":
+            options = _dict(args.payload)
+            return resolve_opposed_check(
+                int(_require(options.get("attacker_roll"), "payload.attacker_roll")),
+                int(
+                    _require(
+                        options.get("attacker_threshold"),
+                        "payload.attacker_threshold",
+                    )
+                ),
+                int(_require(options.get("defender_roll"), "payload.defender_roll")),
+                int(
+                    _require(
+                        options.get("defender_threshold"),
+                        "payload.defender_threshold",
+                    )
+                ),
+                tie_breaker=str(options.get("tie_breaker", "higher-skill")),
+            )
         if args.group == "sanity":
             if args.action == "loss":
+                options = _dict(args.payload)
                 return resolve_sanity_loss(
                     _require(args.current_san, "current-san"),
                     args.san_max or 99,
@@ -560,6 +582,7 @@ def _dispatch(args) -> Any:
                     daily_loss_accumulated=args.daily_loss,
                     pulp_rules=args.pulp,
                     source=args.source or "",
+                    int_check_success=options.get("int_check_success"),
                 )
             if args.action == "bout":
                 return roll_bout_of_madness()
@@ -654,7 +677,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         json.dumps(
             envelope,
-            ensure_ascii=False,
+            # Keep stdout portable on Windows hosts whose console still uses GBK.
+            ensure_ascii=True,
             separators=(",", ":") if compact else None,
             indent=None if compact else 2,
         )

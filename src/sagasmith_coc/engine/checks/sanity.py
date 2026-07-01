@@ -64,6 +64,7 @@ def resolve_sanity_loss(
     pulp_rules: bool = False,
     investigator_name: str = "",
     source: str = "",
+    int_check_success: bool | None = None,
 ) -> dict:
     """
     理智损失完整结算。
@@ -105,31 +106,36 @@ def resolve_sanity_loss(
     new_san = max(0, current_san - actual_loss)
     new_san = min(new_san, san_max)
 
-    # 临时疯狂判定: 单次损失 ≥ 5
-    temp_insanity = actual_loss >= 5
+    # 单次损失 5+ 先触发 INT 检定；理解恐怖（INT 成功）才进入临时疯狂。
+    requires_int_check = actual_loss >= 5
+    temp_insanity = requires_int_check and int_check_success is True
 
     # 不定期疯狂判定
     new_daily_loss = daily_loss_accumulated + actual_loss
     daily_limit = daily_limit if daily_limit is not None else max(1, current_san // 5)
-    indef_insanity = temp_insanity and new_daily_loss >= daily_limit
+    indef_insanity = new_daily_loss >= daily_limit
 
     # 确定疯狂类型
-    if indef_insanity:
+    if new_san == 0:
+        insanity_type = "permanent"
+    elif indef_insanity:
         insanity_type = "indefinite"
     elif temp_insanity:
         insanity_type = "temporary"
     else:
         insanity_type = "none"
 
-    bout_of_madness = temp_insanity
+    bout_of_madness = temp_insanity or indef_insanity
 
     detail_lines.append(
         f"【理智损失】{investigator_name}：{source or '未知来源'}"
     )
     detail_lines.append(f"  → SAN {current_san} - {actual_loss} = {new_san}（上限 {san_max}）")
 
+    if requires_int_check and int_check_success is None:
+        detail_lines.append("  ⚠️ 单次损失 ≥ 5 → 需要 INT 检定")
     if temp_insanity:
-        detail_lines.append("  ⚠️ 损失 ≥ 5 → 临时疯狂")
+        detail_lines.append("  ⚠️ INT 检定成功 → 临时疯狂")
         if indef_insanity:
             detail_lines.append(f"  ⚠️⚠️ 当日累计 {new_daily_loss}/{daily_limit} → 不定期疯狂！")
         else:
@@ -152,6 +158,8 @@ def resolve_sanity_loss(
         "indef_insanity_daily_limit": daily_limit,
         "temp_insanity": temp_insanity,
         "indef_insanity": indef_insanity,
+        "requires_int_check": requires_int_check and int_check_success is None,
+        "int_check_success": int_check_success,
         "insanity_type": insanity_type,
         "bout_of_madness": bout_of_madness,
         "detail_lines": detail_lines,
