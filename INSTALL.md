@@ -27,6 +27,18 @@ SKILL.md：`https://github.com/SagaSmithAI/SagaSmith-coc-skills/tree/main/full`
 
 CoC 无捆绑规则书。用户需自行导入合法持有的规则 PDF。
 
+安装后询问用户是否启用 ChromaDB：
+
+```powershell
+# 安装 ChromaDB + sentence-transformers（向量语义搜索，~2GB）
+pip install "sagasmith-coc[all]"
+
+# 设存储路径后启用
+$env:CHROMA_DB_PATH = "$env:APPDATA\sagasmith\chroma_db"
+```
+
+不装也不影响基础功能（FTS5 全文检索 + 词法搜索已可用）。
+
 ## Standalone 轻量版
 
 如果当前环境无法安装 Python 包（无 pip、无 Python 3.11+）：
