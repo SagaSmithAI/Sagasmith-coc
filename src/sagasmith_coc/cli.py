@@ -128,6 +128,7 @@ def _parser() -> argparse.ArgumentParser:
         "expression",
         "difficulty",
         "source",
+        "scope",
     ):
         parser.add_argument(f"--{name}")
     parser.add_argument("--publications", nargs="*")
@@ -147,6 +148,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--current-value", type=int)
     parser.add_argument("--dense", action="store_true")
     parser.add_argument("--pulp", action="store_true")
+    parser.set_defaults(scope="party")
     return parser
 
 
@@ -441,6 +443,13 @@ def _dispatch(args) -> Any:
                     _require(args.campaign, "campaign"),
                     _require(args.scene, "scene"),
                 )
+            if args.action == "current":
+                return {
+                    "scene": modules.current_scene(
+                        _require(args.campaign, "campaign"),
+                        scope_id=args.scope,
+                    )
+                }
             if args.action in {"index", "export-scenes"}:
                 scenes = modules.scene_index(
                     _require(args.campaign, "campaign"),
@@ -462,7 +471,8 @@ def _dispatch(args) -> Any:
                     scene_id=_require(args.scene, "scene"),
                     status=args.status or "current",
                     progress=args.progress,
-                    state=_dict(args.state),
+                    state=None if args.state is None else _dict(args.state),
+                    scope_id=args.scope,
                 )
 
         if args.group == "save":
