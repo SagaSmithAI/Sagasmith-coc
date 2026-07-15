@@ -10,12 +10,13 @@
 
 ```mermaid
 flowchart LR
-    A[Agent / CoC Skills] --> C[sagasmith-coc]
+    A[Agent / CoC Skills] --> M[SagaSmith-coc-mcp]
+    M --> C[sagasmith-coc]
     C --> B[sagasmith-core]
     B --> D[(Campaign data · branches · retrieval)]
 ```
 
-The current CoC path uses the Python runtime, JSON CLI, and [CoC Skills](https://github.com/SagaSmithAI/SagaSmith-coc-skills). It is converging on the independent MCP and server-side exposure boundary already used by D&D, so it should be treated as a testable system implementation rather than a feature-identical D&D MCP integration.
+The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc-mcp) now connects MCP-owned storage, Lobby/Play/Combat session exposure, scenario scene indexes, snapshots, branch-aware memory, actor-scoped knowledge authorization, and rules resolution. This repository remains the pure CoC runtime and JSON CLI; Agent integration and persistence belong to the MCP repository.
 
 ## Implemented capabilities
 
