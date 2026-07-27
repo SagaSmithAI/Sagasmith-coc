@@ -66,4 +66,4 @@ ruff check .
 
 ## Content and license
 
-Code is MIT licensed. Call of Cthulhu and related commercial content belong to their respective rights holders and are not distributed here. Users should import only material they are authorized to use.
+Original code is licensed under Apache-2.0. Call of Cthulhu and related commercial content belong to their respective rights holders and are not distributed here. Users should import only material they are authorized to use.
