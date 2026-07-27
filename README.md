@@ -36,4 +36,4 @@ npm run preview
 
 ## License
 
-MIT. Call of Cthulhu and commercial scenario content belong to their respective rights holders and are not included.
+Original code is licensed under Apache-2.0. Call of Cthulhu and commercial scenario content belong to their respective rights holders and are not included.
