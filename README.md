@@ -21,7 +21,7 @@ flowchart LR
 ## 已实现能力
 
 - **调查员** — Classic/Pulp 模板、属性与派生值、技能、成长和职业数据形状。
-- **d100 检定** — regular/hard/extreme/critical/fumble、奖励/惩罚骰、对抗与孤注一掷。
+- **d100 检定** — regular/hard/extreme/critical/fumble、奖励/惩罚骰、来源一致的对抗平局、孤注一掷状态和精确 Spending Luck 选项；Luck 不能购买大成功，也不能修改孤注一掷、大失败、Luck、SAN、伤害或武器故障骰。
 - **SAN 与疯狂** — 理智损失、临时与不定期疯狂、症状数据。
 - **战斗与追逐** — DEX/准备枪械顺序、稳定同值次序、下一轮加入、反击/闪避、围攻奖励骰、每轮多次攻击、俯身找掩护、Grid/Agent 空间边界，以及近战、远程与 chase 判定。
 - **追逐状态** — 使用明确的 CON/Drive Auto/Pack 技能做速度检定，以最慢有效 MOV 计算行动点，并确定性维护 DEX 顺序、行动点消耗、路线位置、距离、回合重置和来源明确的结束结果；不再用 `MOV*5` 猜测技能值。

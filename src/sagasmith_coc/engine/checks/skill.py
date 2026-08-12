@@ -1,20 +1,14 @@
-"""
-CoC 7e 技能检定引擎 — d100 vs 阈值，五级成功判定。
+"""Deterministic Call of Cthulhu 7e percentile-check mechanics."""
 
-核心概念:
-    - 阈值 (threshold): 技能的百分值，如 50%、75%
-    - 难度 (difficulty): regular / hard / extreme / critical
-    - 成功等级: 大失败 / 失败 / 常规成功 / 困难成功 / 极难成功 / 大成功
-    - 奖励骰 / 惩罚骰: 影响最终掷骰结果
-    - Luck: 可消耗降低掷骰结果
-    - 推掷 (Push): 可重新掷骰一次，但失败代价更大
-"""
+from __future__ import annotations
 
 from enum import IntEnum
+from typing import Any
 
 
 class SuccessLevel(IntEnum):
-    """成功等级"""
+    """Ordered CoC success levels; larger values are better."""
+
     FUMBLE = -99
     FAILURE = 0
     REGULAR = 1
@@ -24,7 +18,8 @@ class SuccessLevel(IntEnum):
 
 
 class Difficulty(IntEnum):
-    """难度等级"""
+    """The minimum success level required by a check."""
+
     UNKNOWN = -1
     REGULAR = 1
     HARD = 2
@@ -34,80 +29,106 @@ class Difficulty(IntEnum):
 
 
 DIFFICULTY_LABELS = {
-    Difficulty.REGULAR: "常规",
-    Difficulty.HARD: "困难",
-    Difficulty.EXTREME: "极难",
-    Difficulty.CRITICAL: "大成功",
-    Difficulty.UNKNOWN: "未知",
-    Difficulty.IMPOSSIBLE: "不可能",
+    Difficulty.REGULAR: "Regular",
+    Difficulty.HARD: "Hard",
+    Difficulty.EXTREME: "Extreme",
+    Difficulty.CRITICAL: "Critical",
+    Difficulty.UNKNOWN: "Unknown",
+    Difficulty.IMPOSSIBLE: "Impossible",
 }
 
 SUCCESS_LABELS = {
-    SuccessLevel.FUMBLE: "大失败",
-    SuccessLevel.FAILURE: "失败",
-    SuccessLevel.REGULAR: "常规成功",
-    SuccessLevel.HARD: "困难成功",
-    SuccessLevel.EXTREME: "极难成功",
-    SuccessLevel.CRITICAL: "大成功",
+    SuccessLevel.FUMBLE: "Fumble",
+    SuccessLevel.FAILURE: "Failure",
+    SuccessLevel.REGULAR: "Regular success",
+    SuccessLevel.HARD: "Hard success",
+    SuccessLevel.EXTREME: "Extreme success",
+    SuccessLevel.CRITICAL: "Critical success",
 }
+
+LUCK_ADJUSTABLE_ROLL_KINDS = frozenset({"skill", "characteristic"})
+PUSHABLE_ROLL_KINDS = frozenset({"skill", "characteristic"})
 
 
 def threshold_ranges(threshold: int, flat_threshold_modifier: int = 0) -> dict:
-    """
-    计算给定阈值下的各成功等级数值范围。
+    """Return the non-overlapping roll ranges for each success level."""
 
-    COC 7e 规则:
-        - 大成功 (Critical): 01
-        - 极难成功 (Extreme): ≤ 阈值/5
-        - 困难成功 (Hard): ≤ 阈值/2
-        - 常规成功 (Regular): ≤ 阈值
-        - 失败: 常规+1 到 大失败-1
-        - 大失败 (Fumble): 96-100 (阈值<50) 或 100 (阈值≥50)
-
-    参数:
-        threshold: 基础阈值 (百分比)
-        flat_threshold_modifier: 阈值修正值
-
-    返回:
-        {成功等级: [下限, 上限], ...}
-    """
-    effective_threshold = threshold + flat_threshold_modifier
-
-    extreme = max(1, effective_threshold // 5)
-    hard = max(1, effective_threshold // 2)
-    regular = max(1, effective_threshold)
-
-    # 大失败下限
-    if effective_threshold < 50:
-        fumble_min = 96
-    else:
-        fumble_min = 100
-
-    result = {}
-
-    # 大成功
-    result[SuccessLevel.CRITICAL] = [1, 1]
-
-    # 极难成功 (01 ~ floor(threshold/5))
-    if extreme > 1:
-        result[SuccessLevel.EXTREME] = [2, extreme]
-    else:
-        result[SuccessLevel.EXTREME] = [1, 1]
-
-    # 困难成功 (extreme+1 ~ floor(threshold/2))
-    result[SuccessLevel.HARD] = [extreme + 1, hard]
-
-    # 常规成功 (hard+1 ~ threshold)
-    result[SuccessLevel.REGULAR] = [hard + 1, regular]
-
-    # 失败 (regular+1 ~ fumble_min-1)
-    if regular + 1 <= fumble_min - 1:
-        result[SuccessLevel.FAILURE] = [regular + 1, fumble_min - 1]
-
-    # 大失败 (fumble_min ~ 100)
+    base = int(threshold)
+    modifier = int(flat_threshold_modifier)
+    if not 0 <= base <= 100:
+        raise ValueError("threshold must be between 0 and 100")
+    effective = max(0, min(100, base + modifier))
+    extreme_max = effective // 5
+    hard_max = effective // 2
+    fumble_min = 96 if effective < 50 else 100
+    result: dict[SuccessLevel, list[int]] = {SuccessLevel.CRITICAL: [1, 1]}
+    if extreme_max >= 2:
+        result[SuccessLevel.EXTREME] = [2, extreme_max]
+    if hard_max >= max(2, extreme_max + 1):
+        result[SuccessLevel.HARD] = [max(2, extreme_max + 1), hard_max]
+    regular_max = min(effective, fumble_min - 1)
+    if regular_max >= max(2, hard_max + 1):
+        result[SuccessLevel.REGULAR] = [max(2, hard_max + 1), regular_max]
+    if effective + 1 <= fumble_min - 1:
+        result[SuccessLevel.FAILURE] = [max(2, effective + 1), fumble_min - 1]
     result[SuccessLevel.FUMBLE] = [fumble_min, 100]
-
     return result
+
+
+def _difficulty(value: str | Difficulty) -> Difficulty:
+    if isinstance(value, Difficulty):
+        return value
+    try:
+        result = Difficulty[str(value).strip().upper()]
+    except KeyError as error:
+        raise ValueError(f"unsupported difficulty: {value}") from error
+    if result in {Difficulty.UNKNOWN, Difficulty.IMPOSSIBLE}:
+        raise ValueError(f"unsupported check difficulty: {value}")
+    return result
+
+
+def _success_level(total: int, ranges: dict[SuccessLevel, list[int]]) -> SuccessLevel:
+    for level in sorted(ranges, reverse=True):
+        low, high = ranges[level]
+        if low <= total <= high:
+            return level
+    return SuccessLevel.FAILURE
+
+
+def luck_spend_options(
+    d100_total: int,
+    threshold: int,
+    *,
+    flat_dice_modifier: int = 0,
+    flat_threshold_modifier: int = 0,
+    pushed: bool = False,
+    roll_kind: str = "skill",
+) -> dict[str, int]:
+    """Return exact Luck costs for every legal improved success level.
+
+    Spending Luck may improve a skill or characteristic roll to Regular,
+    Hard, or Extreme. It cannot alter a fumble or a pushed, Luck, SAN,
+    damage, or malfunction roll, and it cannot purchase a Critical success.
+    """
+
+    rolled = int(d100_total)
+    if not 1 <= rolled <= 100:
+        raise ValueError("d100_total must be between 1 and 100")
+    kind = str(roll_kind).strip().casefold()
+    current = max(1, min(100, rolled + int(flat_dice_modifier)))
+    ranges = threshold_ranges(threshold, flat_threshold_modifier)
+    current_level = _success_level(current, ranges)
+    if pushed or kind not in LUCK_ADJUSTABLE_ROLL_KINDS or current_level == SuccessLevel.FUMBLE:
+        return {}
+    options: dict[str, int] = {}
+    for level in (SuccessLevel.REGULAR, SuccessLevel.HARD, SuccessLevel.EXTREME):
+        target = ranges.get(level)
+        if target is None or level <= current_level:
+            continue
+        cost = current - target[1]
+        if cost > 0:
+            options[level.name.lower()] = cost
+    return options
 
 
 def resolve_skill_check(
@@ -121,145 +142,95 @@ def resolve_skill_check(
     luck_spent: int = 0,
     skill_name: str = "",
     investigator_name: str = "",
-) -> dict:
-    """
-    完整技能检定结算。
+    *,
+    pushed: bool = False,
+    roll_kind: str = "skill",
+) -> dict[str, Any]:
+    """Resolve one already-rolled percentile check under CoC 7e rules."""
 
-    参数:
-        d100_total: d100 掷骰结果 (1-100)
-        threshold: 技能阈值 (百分比)
-        difficulty: 难度等级
-        bonus_dice: 奖励骰数量
-        penalty_dice: 惩罚骰数量
-        flat_dice_modifier: 掷骰结果修正 (加/减)
-        flat_threshold_modifier: 阈值修正
-        luck_spent: 消耗的幸运值
-        skill_name: 技能名称
-        investigator_name: 调查员名称
-
-    返回:
-        {
-            "d100": int,
-            "modified_total": int,
-            "threshold": int,
-            "difficulty": str,
-            "effective_threshold": int,
-            "success": bool,
-            "success_level": str,
-            "is_critical": bool,
-            "is_fumble": bool,
-            "luck_required_regular": int,
-            "luck_required_hard": int,
-            "luck_required_extreme": int,
-            "luck_required_critical": int,
-            "detail_lines": list[str],
-            "summary_line": str,
-        }
-    """
-    # 规范化参数
-    if isinstance(difficulty, str):
-        try:
-            difficulty = Difficulty[difficulty.upper()]
-        except KeyError:
-            difficulty = Difficulty.REGULAR
-
-    # 计算修正后总值
-    modified_total = d100_total + flat_dice_modifier - luck_spent
-    modified_total = max(1, min(100, modified_total))
-
-    # 计算阈值范围
-    ranges = threshold_ranges(threshold, flat_threshold_modifier)
-
-    # 确定成功等级
-    success_level = None
-    for level in sorted(ranges.keys(), reverse=True):
-        lo, hi = ranges[level]
-        if lo <= modified_total <= hi:
-            success_level = level
-            break
-
-    if success_level is None:
-        success_level = SuccessLevel.FAILURE
-
-    # 按难度判定是否算"成功"
-    is_success = success_level >= difficulty
-
-    # 计算晋升各级成功所需的 luck 值
-    luck_required_regular = _luck_required(modified_total, ranges.get(SuccessLevel.REGULAR))
-    luck_required_hard = _luck_required(modified_total, ranges.get(SuccessLevel.HARD))
-    luck_required_extreme = _luck_required(modified_total, ranges.get(SuccessLevel.EXTREME))
-    luck_required_critical = _luck_required(modified_total, ranges.get(SuccessLevel.CRITICAL))
-
-    # 构建展示文本
-    detail_lines = []
-    skill_label = skill_name or "技能"
-    name_label = investigator_name or "调查员"
-
-    diff_label = DIFFICULTY_LABELS.get(difficulty, "常规")
-    action_line = f"【{skill_label}检定·{diff_label}】{name_label}：阈值 {threshold}"
-    if flat_threshold_modifier:
-        action_line += f" ({threshold:+d}修正)"
-    detail_lines.append(action_line)
-
-    dice_str = f"  → d100 = {d100_total}"
-    if bonus_dice or penalty_dice:
-        modifiers = []
-        if bonus_dice:
-            modifiers.append(f"奖励骰{bonus_dice}")
-        if penalty_dice:
-            modifiers.append(f"惩罚骰{penalty_dice}")
-        dice_str += f" ({'/'.join(modifiers)})"
-    if flat_dice_modifier:
-        dice_str += f" {'+' if flat_dice_modifier > 0 else ''}{flat_dice_modifier}"
-    if luck_spent:
-        dice_str += f" -{luck_spent}(幸运)"
-    dice_str += f" = {modified_total}"
-    detail_lines.append(dice_str)
-
-    success_label = SUCCESS_LABELS.get(success_level, "未知")
-    result_str = (
-        f"  → {success_label}"
-        f"（{modified_total} / 阈值 {threshold}）"
+    rolled = int(d100_total)
+    if not 1 <= rolled <= 100:
+        raise ValueError("d100_total must be between 1 and 100")
+    if not 0 <= int(bonus_dice) <= 2 or not 0 <= int(penalty_dice) <= 2:
+        raise ValueError("bonus_dice and penalty_dice must be between 0 and 2")
+    kind = str(roll_kind).strip().casefold()
+    if not kind:
+        raise ValueError("roll_kind is required")
+    required_level = _difficulty(difficulty)
+    ranges = threshold_ranges(int(threshold), int(flat_threshold_modifier))
+    unadjusted_total = max(1, min(100, rolled + int(flat_dice_modifier)))
+    original_level = _success_level(unadjusted_total, ranges)
+    options = luck_spend_options(
+        rolled,
+        int(threshold),
+        flat_dice_modifier=int(flat_dice_modifier),
+        flat_threshold_modifier=int(flat_threshold_modifier),
+        pushed=bool(pushed),
+        roll_kind=kind,
     )
-    if success_level == SuccessLevel.CRITICAL:
-        result_str += " ⚡"
-    elif success_level == SuccessLevel.FUMBLE:
-        result_str += " 💀"
-    elif is_success:
-        result_str += " ✅"
-    else:
-        result_str += " ❌"
-    detail_lines.append(result_str)
-
-    summary_line = (
-        f"{name_label}（{skill_label} {threshold}%）："
-        f"d100={d100_total}"
+    spent = int(luck_spent)
+    if spent < 0:
+        raise ValueError("luck_spent must not be negative")
+    if spent and spent not in set(options.values()):
+        if pushed:
+            raise ValueError("Luck cannot adjust a pushed roll")
+        if original_level == SuccessLevel.FUMBLE:
+            raise ValueError("Luck cannot adjust a fumble")
+        if kind not in LUCK_ADJUSTABLE_ROLL_KINDS:
+            raise ValueError(f"Luck cannot adjust a {kind} roll")
+        raise ValueError("luck_spent must exactly purchase a listed success level")
+    modified_total = max(1, unadjusted_total - spent)
+    success_level = _success_level(modified_total, ranges)
+    if spent and success_level == SuccessLevel.CRITICAL:
+        success_level = SuccessLevel.EXTREME
+    succeeded = success_level >= required_level
+    original_succeeded = original_level >= required_level
+    push_eligible = bool(
+        not pushed
+        and not spent
+        and kind in PUSHABLE_ROLL_KINDS
+        and not original_succeeded
     )
-    if luck_spent:
-        summary_line += f" -{luck_spent}幸"
-    summary_line += f" = {modified_total} → {success_label}"
-    if is_success:
-        summary_line += " ✅"
-    else:
-        summary_line += " ❌"
-
+    success_label = SUCCESS_LABELS[success_level]
+    name_label = investigator_name or "Investigator"
+    skill_label = skill_name or kind.title()
+    detail_lines = [
+        f"{name_label}: {skill_label} {int(threshold)} at {required_level.name.lower()} difficulty",
+        f"d100={rolled}; adjusted={modified_total}; {success_label}",
+    ]
+    if spent:
+        detail_lines.append(f"Spent {spent} Luck")
+    if pushed:
+        detail_lines.append("Pushed roll")
     return {
-        "d100": d100_total,
+        "d100": rolled,
+        "unadjusted_total": unadjusted_total,
         "modified_total": modified_total,
-        "threshold": threshold,
-        "difficulty": difficulty.name.lower() if hasattr(difficulty, 'name') else str(difficulty),
-        "effective_threshold": threshold + flat_threshold_modifier,
-        "success": is_success,
+        "threshold": int(threshold),
+        "difficulty": required_level.name.lower(),
+        "effective_threshold": max(
+            0, min(100, int(threshold) + int(flat_threshold_modifier))
+        ),
+        "roll_kind": kind,
+        "pushed": bool(pushed),
+        "success": succeeded,
+        "original_success": original_succeeded,
         "success_level": success_level,
+        "original_success_level": original_level,
         "success_label": success_label,
         "is_critical": success_level == SuccessLevel.CRITICAL,
-        "is_fumble": success_level == SuccessLevel.FUMBLE,
-        "luck_required_regular": luck_required_regular,
-        "luck_required_hard": luck_required_hard,
-        "luck_required_extreme": luck_required_extreme,
-        "luck_required_critical": luck_required_critical,
+        "is_fumble": original_level == SuccessLevel.FUMBLE,
+        "luck_spent": spent,
+        "luck_options": options,
+        "luck_eligible": bool(options),
+        "push_eligible": push_eligible,
+        "failed_pushed_roll": bool(pushed and not succeeded),
+        "development_eligible": bool(kind == "skill" and succeeded),
         "detail_lines": detail_lines,
-        "summary_line": summary_line,
+        "summary_line": (
+            f"{name_label} ({skill_label} {int(threshold)}%): "
+            f"d100={rolled}{f' -{spent} Luck' if spent else ''} -> {success_label}"
+        ),
     }
 
 
@@ -270,8 +241,11 @@ def resolve_opposed_check(
     defender_threshold: int,
     *,
     tie_breaker: str = "higher-skill",
-) -> dict:
-    """Resolve a two-party opposed roll using success level then a stable tie break."""
+) -> dict[str, Any]:
+    """Resolve an opposed check by success level, skill value, then lower roll."""
+
+    if tie_breaker not in {"higher-skill", "lower-roll"}:
+        raise ValueError("tie_breaker must be higher-skill or lower-roll")
     attacker = resolve_skill_check(attacker_roll, attacker_threshold)
     defender = resolve_skill_check(defender_roll, defender_threshold)
     attacker_level = attacker["success_level"]
@@ -283,22 +257,12 @@ def resolve_opposed_check(
         winner = "defender"
     elif attacker_level < SuccessLevel.REGULAR:
         winner = None
-    elif tie_breaker == "lower-roll":
-        winner = (
-            "attacker"
-            if attacker_roll < defender_roll
-            else "defender"
-            if defender_roll < attacker_roll
-            else None
-        )
+    elif tie_breaker == "higher-skill" and attacker_threshold != defender_threshold:
+        winner = "attacker" if attacker_threshold > defender_threshold else "defender"
+    elif attacker_roll != defender_roll:
+        winner = "attacker" if attacker_roll < defender_roll else "defender"
     else:
-        winner = (
-            "attacker"
-            if attacker_threshold > defender_threshold
-            else "defender"
-            if defender_threshold > attacker_threshold
-            else None
-        )
+        winner = None
     return {
         "attacker": attacker,
         "defender": defender,
@@ -308,16 +272,11 @@ def resolve_opposed_check(
     }
 
 
-def _luck_required(current: int, target_range: list[int] | None) -> int:
-    """计算从 current 降到 target_range 所需幸运值"""
-    if target_range is None:
-        return 0
-    lo, hi = target_range
-    if current <= hi:
-        return 0
-    return current - hi
-
-
 def get_success_label(level: int) -> str:
-    """获取成功等级的中文标签"""
-    return SUCCESS_LABELS.get(level, f"等级{level}")
+    """Return the stable English label for a success level."""
+
+    try:
+        resolved = SuccessLevel(int(level))
+    except ValueError:
+        return f"Level {level}"
+    return SUCCESS_LABELS[resolved]
