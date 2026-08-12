@@ -1,39 +1,54 @@
 # SagaSmith CoC UI
 
-**Prototype Keeper workbench for the SagaSmithAI Call of Cthulhu 7e stack.** This repository explores how investigators, clues, SAN, scenes, handouts, chases, and snapshot continuity should be presented during a live investigation.
+Keeper-facing Astro/React workbench for the current `sagasmith-coc-mcp` contract.
+It covers campaign-scoped investigation, CoC Module Pack state, investigators,
+chases/combat, branches/snapshots/revisions, and an advanced console for all 43
+native MCP tools.
 
-## Current status
+## Authority boundary
 
-The repository is a UI prototype, not a production CoC client. The CoC runtime currently exposes a JSON CLI and has not yet reached the independent MCP/session-exposure boundary used by the D&D reference stack. Until that boundary and an authenticated gateway exist:
-
-- no browser view should claim authoritative writes;
-- Keeper-only scene data must never be filtered only in client code;
-- commercial scenario content must not be bundled into the frontend;
-- UI mock data must remain clearly labeled.
-
-## Intended architecture
+The browser does **not** connect to the stdio MCP server directly and never sends
+`principal_id`. It calls an authenticated, sticky-session gateway at:
 
 ```text
-Keeper Workbench
-    ↓ authenticated, audience-safe gateway
-SagaSmith CoC MCP (session exposure and actor-scoped state)
-    ↓
-sagasmith-coc + sagasmith-core
+POST {PUBLIC_COC_GATEWAY_BASE}/api/coc/mcp/tool
+Cookie: <authenticated session>
+Content-Type: application/json
+
+{"tool":"campaign_query","arguments":{"action":"list"}}
 ```
 
-The future workbench should cover the current scene and visibility, investigator sheets, clue/handout graph, SAN and insanity state, chase/combat timeline, scenario node navigation, and branch-aware snapshots.
+The gateway owns authentication, injects the bound principal, keeps one MCP
+session sticky, forwards `tools/list_changed`, and returns the tool's structured
+result. The UI refuses caller-supplied `principal_id`; MCP remains authoritative
+for authorization, dynamic exposure, random streams, revisions, idempotency, and
+atomic settlement.
 
-## Development
+No gateway is implemented in this repository. Web hosting and the authenticated
+gateway belong to the separate web-application task.
 
-Requires Node.js 22.12+.
+## Run
 
 ```bash
 npm install
+npm test
 npm run dev
-npm run build
-npm run preview
 ```
 
-## License
+Configuration:
 
-Original code is licensed under Apache-2.0. Call of Cthulhu and commercial scenario content belong to their respective rights holders and are not included.
+- `PUBLIC_COC_GATEWAY_BASE` — gateway origin, default `http://127.0.0.1:8767`
+- `PUBLIC_COC_UI_MODE=demo` — explicit read-only demo mode
+
+For a one-off local demo, open `/?demo=1`. Demo data is visibly marked,
+read-only, and is not evidence that either sample campaign has been backtested.
+Live connection failures never silently fall back to demo data.
+
+## Production build
+
+```bash
+npm run build
+```
+
+The output is a static client in `dist/`; deploy it behind the same authenticated
+origin as the gateway or configure CORS and credential handling deliberately.

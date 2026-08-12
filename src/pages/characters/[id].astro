@@ -1,9 +1,0 @@
----
-import BaseLayout from '../../layouts/BaseLayout.astro';
-import InvestigatorSheet from '../../components/InvestigatorSheet';
-export async function getStaticPaths() {
-  return [{ params: { id: '_demo' } }];
-}
-const { id } = Astro.params;
----
-<BaseLayout title="调查员">{id && <InvestigatorSheet client:load />}</BaseLayout>

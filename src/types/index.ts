@@ -1,66 +1,199 @@
+export type RuntimePhase = 'lobby' | 'play' | 'combat';
+export type ConnectionMode = 'live' | 'demo';
+
 export interface Campaign {
-  id: string; name: string; slug: string; system_id: string;
-  edition?: string; locale?: string; status: string;
-  description: string; settings: Record<string, unknown>;
-  state: Record<string, unknown>; revision: number;
+  id: string;
+  name: string;
+  slug?: string;
+  system_id: 'coc7e' | string;
+  edition?: string;
+  locale?: string;
+  status?: string;
+  description?: string;
+  settings: Record<string, unknown>;
+  state: Record<string, unknown>;
+  revision: number;
 }
 
 export interface Investigator {
-  id: string; campaign_id?: string; name: string;
-  character_type: string; player_name?: string;
-  summary: string; sheet: CocSheet; notes: Record<string, unknown>;
+  id: string;
+  campaign_id?: string;
+  name: string;
+  character_type: 'investigator' | 'npc' | 'creature' | string;
+  player_name?: string;
+  summary?: string;
+  sheet?: CocSheet;
+  notes?: Record<string, unknown>;
   revision: number;
 }
 
 export interface CocSheet {
   occupation?: string;
-  attributes: { str: number; con: number; siz: number; dex: number; app: number; int: number; pow: number; edu: number };
-  hp: { current: number; max: number };
-  san: { current: number; max: number; starting: number };
-  luck: number; mp: { current: number; max: number };
-  move_rate: number; damage_bonus: string; build: number;
-  dodging: number; armor?: string;
+  archetype?: string;
+  ruleset?: 'classic' | 'pulp' | string;
+  characteristics: Partial<Record<Characteristic, number>>;
+  hp: number;
+  max_hp: number;
+  san: number;
+  san_max: number;
+  san_daily_loss?: number;
+  san_daily_limit?: number;
+  luck: number;
+  mp: number;
+  max_mp: number;
+  mov: number;
+  damage_bonus: string;
+  build: number;
+  dodge: number;
+  cthulhu_mythos?: number;
   skills: Record<string, number>;
   weapons?: CocWeapon[];
-  possessions?: string[];
-  cash?: { spending: number; assets: number };
-  backstory?: { description: string; ideology: string; significant_people: string; meaningful_locations: string; treasured_possessions: string; traits: string; injuries: string; phobias: string; arcane_tomes: string; encounters: string };
+  conditions?: Record<string, boolean>;
+  development?: { checked_skills?: string[]; [key: string]: unknown };
+  biography?: unknown[];
+  sanity_loss_events?: unknown[];
+  inventory?: unknown[];
+  books?: unknown[];
+  monetary?: Record<string, unknown>;
+  backstory?: Record<string, unknown>;
+  [key: string]: unknown;
 }
+
+export type Characteristic = 'str' | 'con' | 'siz' | 'dex' | 'app' | 'int' | 'pow' | 'edu';
 
 export interface CocWeapon {
-  name: string; skill: string; damage: string; range?: string;
-  attacks?: number; ammunition?: number; malfunction?: number;
+  name: string;
+  skill?: string;
+  damage?: string;
+  range?: string;
+  attacks?: number;
+  ammunition?: number;
+  malfunction?: number;
+  [key: string]: unknown;
 }
 
-export interface ScenarioScene {
-  scene_id: string; title: string; module: string; chapter: string;
-  scene_type: string; visibility: string;
-  page_start?: number; page_end?: number;
-  clues?: ClueInfo[]; checks?: CheckInfo[];
-  sanity?: SanityInfo[]; subsections?: SubsectionInfo[];
-  tags: string[]; headings: string[];
+export interface ModuleRecord {
+  id?: string;
+  module_id?: string;
+  title?: string;
+  source_key?: string;
+  parser_profile?: string;
+  active?: boolean;
+  status?: string;
+  warnings?: unknown[];
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface SceneRecord {
+  scene_id: string;
+  stable_key?: string;
+  title: string;
+  module?: string;
+  module_id?: string;
+  chapter?: string;
+  scene_type?: string;
+  visibility?: string;
+  page_start?: number;
+  page_end?: number;
+  clues?: unknown[];
+  checks?: unknown[];
+  sanity?: unknown[];
+  tags?: string[];
+  headings?: string[];
   content?: string;
+  [key: string]: unknown;
 }
-
-export interface ClueInfo { title: string; line: number; type: string; }
-export interface CheckInfo { title: string; line: number; difficulty?: string; }
-export interface SanityInfo { expression: string; success_loss: string; failure_loss: string; }
-export interface SubsectionInfo { title: string; line: number; type: string; }
 
 export interface SceneProgress {
-  scene_id: string; scope_id: string; status: string;
-  progress: number; current_room?: string;
-  state_version: number; state: Record<string, unknown>;
+  scene_id: string;
+  scope_id: string;
+  status: string;
+  progress?: number;
+  percent?: number;
+  current_location_key?: string;
+  current_room?: string;
+  state_version?: number;
+  state?: Record<string, unknown>;
 }
 
-export interface SaveSlot { slot: number; label: string; parent_slot?: number; created_at?: string; }
-export interface EventLog { id: string; campaign_id: string; type: string; summary: string; payload: Record<string, unknown>; }
+export interface SnapshotRecord {
+  id?: string;
+  slot: number;
+  label?: string;
+  parent_slot?: number;
+  branch_id?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
 
-export const ATTRIBUTE_LABELS: Record<string, string> = {
+export interface BranchRecord {
+  id: string;
+  name?: string;
+  head_snapshot_id?: string;
+  head_revision_id?: string;
+  [key: string]: unknown;
+}
+
+export interface ExposureStatus {
+  id?: string;
+  campaign_id?: string;
+  phase?: RuntimePhase;
+  loaded_tools?: string[];
+  available_tools?: string[];
+  native_dynamic_tools?: boolean;
+  matches?: Array<{ tool_id: string; description?: string; loaded?: boolean; roles?: string[] }>;
+  [key: string]: unknown;
+}
+
+export interface InvestigationState {
+  campaign_id: string;
+  campaign_revision: number;
+  actor_id: string;
+  pending?: Record<string, unknown> | null;
+  history?: Array<Record<string, unknown>>;
+}
+
+export interface EncounterView {
+  campaign_id: string;
+  campaign_revision: number;
+  phase: RuntimePhase;
+  available_actions: string[];
+  combat?: Record<string, unknown>;
+  chase?: Record<string, unknown>;
+}
+
+export interface RuntimeCapabilities {
+  server: string;
+  version: string;
+  system: string;
+  phases: string[];
+  native_dynamic_tools_required: boolean;
+  content_pack?: Record<string, unknown>;
+  tool_catalog?: unknown;
+  [key: string]: unknown;
+}
+
+export interface CampaignWorkspace {
+  campaign: Campaign;
+  phase: RuntimePhase;
+  characters: Investigator[];
+  modules: ModuleRecord[];
+  packs: ModuleRecord[];
+  finalizedDrafts: Array<Record<string, unknown>>;
+  scenes: SceneRecord[];
+  currentScene: SceneRecord | null;
+  progress: SceneProgress[];
+  snapshots: SnapshotRecord[];
+  branches: BranchRecord[];
+  revisions: Array<Record<string, unknown>>;
+  investigations: Record<string, InvestigationState>;
+  encounter: EncounterView | null;
+  exposure: ExposureStatus | null;
+  warnings: string[];
+}
+
+export const CHARACTERISTIC_LABELS: Record<Characteristic, string> = {
   str: '力量', con: '体质', siz: '体型', dex: '敏捷',
   app: '外貌', int: '智力', pow: '意志', edu: '教育',
-};
-export const ATTRIBUTE_EN: Record<string, string> = {
-  str: 'STR', con: 'CON', siz: 'SIZ', dex: 'DEX',
-  app: 'APP', int: 'INT', pow: 'POW', edu: 'EDU',
 };

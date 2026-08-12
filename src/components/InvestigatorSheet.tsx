@@ -1,84 +1,30 @@
-import { useState, useEffect } from 'react';
-import { getInvestigator } from '../lib/api';
-import { ATTRIBUTE_LABELS } from '../types';
-import type { Investigator, CocSheet } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import { createClient, emitRuntimeStatus } from '../lib/api';
+import { CHARACTERISTIC_LABELS, type Characteristic, type Investigator } from '../types';
+import { RuntimeError } from './Dashboard';
+
+const ORDER: Characteristic[] = ['str', 'con', 'siz', 'dex', 'app', 'int', 'pow', 'edu'];
 
 export default function InvestigatorSheet() {
-  const id = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '';
-  const [inv, setInv] = useState<Investigator|null>(null);
-  const [showRaw, setShowRaw] = useState(false);
-  useEffect(() => { if (id) getInvestigator(id).then(setInv).catch(()=>{}); }, [id]);
-  if (!inv) return <div style={{padding:40,textAlign:'center',color:'#9ca3af'}}>加载中...</div>;
-  const s: CocSheet = (inv.sheet || {}) as CocSheet;
-  const attrs = s.attributes || {};
-  const skills = s.skills || {};
-
-  return (
-    <div style={{maxWidth:800,margin:'0 auto',padding:'24px 16px'}}>
-      <div className="page-header">
-        <a href={`/campaigns/${inv.campaign_id}`} className="btn btn-ghost btn-sm">←</a>
-        <div><h1>🕵️ {inv.name}</h1><div className="subtitle">{s.occupation||inv.summary||'调查员'}</div></div>
-      </div>
-      {/* 8 attributes */}
-      <div className="card" style={{marginBottom:16}}>
-        <div className="card-header">属性</div>
-        <div className="stat-grid" style={{gridTemplateColumns:'repeat(4,1fr)'}}>
-          {['str','con','siz','dex','app','int','pow','edu'].map(ab => (
-            <div key={ab} className="stat-card" style={{padding:12}}>
-              <div style={{fontSize:'.7rem',color:'#6b7280'}}>{ATTRIBUTE_LABELS[ab]||ab}</div>
-              <div className="stat-number" style={{fontSize:'1.4rem'}}>{attrs[ab]??'-'}</div>
-              <div style={{fontSize:'.7rem',color:'#9ca3af'}}>1/2:{Math.floor((attrs[ab]??0)/2)} 1/5:{Math.floor((attrs[ab]??0)/5)}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* HP / SAN / Luck / MP */}
-      <div className="stat-grid" style={{marginBottom:16}}>
-        <div className="stat-card"><div className="stat-label">HP</div><div className="stat-number" style={{fontSize:'1.2rem'}}>{s.hp?.current??'?'}/{s.hp?.max??'?'}</div></div>
-        <div className="stat-card" style={{borderColor:'#7c3aed'}}><div className="stat-label">SAN</div><div className="stat-number" style={{fontSize:'1.2rem',color:'#7c3aed'}}>{s.san?.current??'?'}/{s.san?.max??'?'}</div></div>
-        <div className="stat-card"><div className="stat-label">幸运</div><div className="stat-number" style={{fontSize:'1.2rem'}}>{s.luck??'?'}</div></div>
-        <div className="stat-card"><div className="stat-label">MP</div><div className="stat-number" style={{fontSize:'1.2rem'}}>{s.mp?.current??'?'}/{s.mp?.max??'?'}</div></div>
-      </div>
-      {/* Combat stats */}
-      <div className="grid-2" style={{marginBottom:16}}>
-        <div className="card"><div className="card-header">战斗</div>
-          <div style={{fontSize:'.9rem',display:'flex',flexDirection:'column',gap:6}}>
-            <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'#6b7280'}}>DB</span><span>{s.damage_bonus||'-'}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'#6b7280'}}>体格</span><span>{s.build??'-'}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'#6b7280'}}>移动</span><span>{s.move_rate??'-'}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'#6b7280'}}>闪避</span><span>{s.dodging??'-'}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'#6b7280'}}>护甲</span><span>{s.armor||'无'}</span></div>
-          </div>
-        </div>
-        <div className="card"><div className="card-header">武器</div>
-          {s.weapons && s.weapons.length>0 ? <div style={{fontSize:'.85rem',display:'flex',flexDirection:'column',gap:6}}>
-            {s.weapons.map((w,i)=>(
-              <div key={i} style={{padding:'6px 8px',background:'#f9fafb',borderRadius:6}}>
-                <div style={{fontWeight:500}}>{w.name}</div>
-                <div style={{color:'#6b7280',fontSize:'.78rem'}}>{w.skill} · {w.damage}{w.range?` · ${w.range}`:''}</div>
-              </div>
-            ))}
-          </div> : <p style={{color:'#9ca3af',fontSize:'.85rem'}}>无武器数据</p>}
-        </div>
-      </div>
-      {/* Skills */}
-      <div className="card" style={{marginBottom:16}}>
-        <div className="card-header">技能 ({Object.keys(skills).length})</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:6}}>
-          {Object.entries(skills).length>0 ? Object.entries(skills).map(([k,v])=>(
-            <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'4px 8px',background:'#f9fafb',borderRadius:4,fontSize:'.85rem'}}>
-              <span>{k}</span><span style={{fontWeight:600}}>{v}%</span>
-            </div>
-          )) : <p style={{color:'#9ca3af',gridColumn:'1/-1',fontSize:'.85rem'}}>暂无技能数据</p>}
-        </div>
-      </div>
-      {/* Raw */}
-      <div className="card">
-        <div className="card-header" style={{cursor:'pointer',display:'flex',justifyContent:'space-between'}} onClick={()=>setShowRaw(!showRaw)}>
-          <span>Sheet 原始数据</span><span style={{fontSize:'.8rem',color:'#6b7280'}}>{showRaw?'收起':'展开'}</span>
-        </div>
-        {showRaw && <pre style={{fontSize:'.75rem',overflow:'auto',maxHeight:400,background:'#1a1a2e',color:'#e5e7eb',padding:12,borderRadius:6,marginTop:8}}>{JSON.stringify(s,null,2)}</pre>}
-      </div>
-    </div>
-  );
+  const client = useMemo(() => createClient(), []); const [actor, setActor] = useState<Investigator | null>(null); const [error, setError] = useState(''); const [raw, setRaw] = useState(false);
+  const id = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('id') || '';
+  const campaignId = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('campaign') || '';
+  useEffect(() => { if (!campaignId) { setError('角色读取需要 campaign 查询参数，以便 MCP 做 campaign 与 actor scope 授权。'); return; } client.getInvestigator(campaignId, id).then((value) => { setActor(value); emitRuntimeStatus(true, { mode: client.mode }); }).catch((reason) => { setError(reason instanceof Error ? reason.message : String(reason)); emitRuntimeStatus(false, { mode: client.mode }); }); }, [campaignId, client, id]);
+  if (error) return <div className="page"><RuntimeError message={error} /></div>;
+  if (!actor) return <div className="page"><div className="empty card">正在读取 actor-scoped 角色卡……</div></div>;
+  if (!actor.sheet) return <div className="page"><div className="page-heading"><div><div className="eyebrow">REDACTED ACTOR</div><h1>{actor.name}</h1></div></div><div className="empty card">当前身份只能看到公开角色摘要，私有 sheet 已由 MCP 隐去。</div></div>;
+  const sheet = actor.sheet; const conditions = Object.entries(sheet.conditions || {}).filter(([, active]) => active); const skills = Object.entries(sheet.skills || {}).sort((a, b) => b[1] - a[1]);
+  const backQuery = new URLSearchParams({ id: campaignId }); if (client.mode === 'demo') backQuery.set('demo', '1');
+  return <div className="page investigator-page"><div className="page-heading"><div><div className="eyebrow">INVESTIGATOR DOSSIER / REV {actor.revision}</div><h1>{actor.name}</h1><p>{sheet.occupation || actor.summary || '调查员'}</p></div><a className="btn btn-ghost" href={`/campaigns/detail?${backQuery}`}>返回战役</a></div>
+    {client.mode === 'demo' && <div className="demo-notice"><strong>DEMO SHEET</strong><span>字段结构与当前 `validate_investigator_sheet` 一致，但数值不是回测记录。</span></div>}
+    <section className="identity-strip"><Datum label="RULESET" value={sheet.ruleset || 'classic'} /><Datum label="OCCUPATION" value={sheet.occupation || '—'} /><Datum label="MOV" value={sheet.mov} /><Datum label="BUILD / DB" value={`${sheet.build} / ${sheet.damage_bonus}`} /><Datum label="DODGE" value={sheet.dodge} /></section>
+    <section className="characteristics">{ORDER.map((key) => { const value = sheet.characteristics?.[key]; return <article key={key}><span>{CHARACTERISTIC_LABELS[key]}</span><small>{key.toUpperCase()}</small><strong>{value ?? '—'}</strong><footer><b>½ {value == null ? '—' : Math.floor(value / 2)}</b><b>⅕ {value == null ? '—' : Math.floor(value / 5)}</b></footer></article>; })}</section>
+    <section className="vital-grid"><Vital label="HP" value={sheet.hp} max={sheet.max_hp} tone="blood" /><Vital label="SAN" value={sheet.san} max={sheet.san_max} tone="mind" /><Vital label="LUCK" value={sheet.luck} max={100} tone="luck" /><Vital label="MP" value={sheet.mp} max={sheet.max_mp} tone="magic" /></section>
+    <div className="grid-2"><section className="card"><div className="card-header"><strong>SKILLS</strong><span>{skills.length}</span></div><div className="skill-list">{skills.map(([name, value]) => <div key={name}><span>{name}</span><i><b style={{ width: `${Math.min(100, value)}%` }} /></i><strong>{value}</strong></div>)}</div></section>
+      <div className="stack"><section className="card"><div className="card-header"><strong>CONDITIONS</strong><span>{conditions.length || 'CLEAR'}</span></div>{conditions.length ? <div className="action-chips danger">{conditions.map(([name]) => <span key={name}>{name}</span>)}</div> : <p className="empty compact">没有活动状态。</p>}</section><section className="card"><div className="card-header"><strong>DEVELOPMENT</strong><span>LOBBY SETTLEMENT</span></div><div className="action-chips">{(sheet.development?.checked_skills || []).map((name) => <span key={name}>{name}</span>)}</div>{!(sheet.development?.checked_skills || []).length && <p className="empty compact">没有待结算成长标记。</p>}</section><section className="card"><div className="card-header"><strong>WEAPONS</strong><span>{sheet.weapons?.length || 0}</span></div>{sheet.weapons?.map((weapon) => <div className="weapon-row" key={weapon.name}><b>{weapon.name}</b><span>{weapon.skill || '—'} · {weapon.damage || '—'} · {weapon.range || '近战'}</span></div>)}</section></div>
+    </div><section className="card raw-sheet"><button onClick={() => setRaw(!raw)}><span>完整 sheet JSON</span><b>{raw ? '收起' : '展开'}</b></button>{raw && <pre>{JSON.stringify(sheet, null, 2)}</pre>}</section>
+  </div>;
 }
+
+function Datum({ label, value }: { label: string; value: unknown }) { return <div><span>{label}</span><strong>{String(value)}</strong></div>; }
+function Vital({ label, value, max, tone }: { label: string; value: number; max: number; tone: string }) { const pct = Math.max(0, Math.min(100, max ? value / max * 100 : 0)); return <article className={`vital ${tone}`}><header><span>{label}</span><strong>{value}<small> / {max}</small></strong></header><i><b style={{ width: `${pct}%` }} /></i></article>; }

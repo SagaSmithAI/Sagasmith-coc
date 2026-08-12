@@ -2,4 +2,4 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import CampaignList from '../components/CampaignList';
 ---
-<BaseLayout title="调查团"><CampaignList client:load /></BaseLayout>
+<BaseLayout title="调查档案"><CampaignList client:only="react" /></BaseLayout>
