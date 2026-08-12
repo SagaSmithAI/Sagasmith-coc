@@ -79,7 +79,7 @@ def test_solo_module_ingest_uses_core_visibility_contract(database: Database) ->
 
     scenes = modules.scene_index(campaign.id, module_id=imported.module_id)
     assert len(scenes) == 11
-    assert all(scene["visibility"] == "party" for scene in scenes[1:])
+    assert all(scene["visibility"] == "group" for scene in scenes[1:])
 
 
 def test_reviewed_scenario_compiles_to_round_trip_v2_pack(database: Database) -> None:

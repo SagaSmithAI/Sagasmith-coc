@@ -85,11 +85,8 @@ def test_coc_skill_cli_vertical_slice(tmp_path: Path, monkeypatch, capsys) -> No
         "图书馆",
     ]
     assert scene_index["data"]["scenes"][1]["scene_type"] == "investigation"
-    assert scene_index["data"]["scenes"][1]["visibility"] == "keeper"
+    assert scene_index["data"]["scenes"][1]["visibility"] == "restricted"
     assert scene_index["data"]["scenes"][1]["subsections"] == [
-        {"title": "线索", "line": 3, "type": "clue"}
-    ]
-    assert scene_index["data"]["scenes"][1]["clues"] == [
         {"title": "线索", "line": 3, "type": "clue"}
     ]
     scene_id = scene_index["data"]["scenes"][1]["scene_id"]
@@ -115,7 +112,7 @@ def test_coc_skill_cli_vertical_slice(tmp_path: Path, monkeypatch, capsys) -> No
     )[1]["data"]["scene"]
     assert current["title"] == "图书馆"
     assert current["scope_id"] == "party"
-    assert current["clues"][0]["title"] == "线索"
+    assert current["subsections"][0]["title"] == "线索"
     assert current["progress"]["state"] == {"discovered_clues": ["染血手记"]}
     inherited = _call(
         capsys,

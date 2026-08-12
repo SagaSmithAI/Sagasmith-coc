@@ -31,7 +31,7 @@ def test_coc_conventional_scenario_parses_investigation_metadata() -> None:
     assert scenes[1].metadata["scene_type"] == "reference"
     cottage = scenes[2]
     assert cottage.metadata["scene_type"] == "investigation"
-    assert cottage.metadata["visibility"] == "keeper"
+    assert cottage.metadata["visibility"] == "restricted"
     assert cottage.metadata["clues"] == [
         {
             "title": "Core Clue: Torn Letter",
@@ -72,7 +72,7 @@ def test_coc_handout_pack_creates_player_visible_assets() -> None:
         "HANDOUT: LIGHTLESS #2",
     ]
     assert scenes[0].metadata["scene_type"] == "reference"
-    assert all(scene.metadata["visibility"] == "party" for scene in scenes[1:])
+    assert all(scene.metadata["visibility"] == "group" for scene in scenes[1:])
 
 
 def test_coc_solo_scenario_creates_nodes_and_choice_edges() -> None:
@@ -88,7 +88,7 @@ def test_coc_solo_scenario_creates_nodes_and_choice_edges() -> None:
 
     assert scenes[0].metadata["scene_type"] == "reference"
     assert [scene.metadata["node_id"] for scene in scenes[1:]] == list(range(1, 11))
-    assert all(scene.metadata["visibility"] == "party" for scene in scenes[1:])
+    assert all(scene.metadata["visibility"] == "group" for scene in scenes[1:])
     assert scenes[1].metadata["transitions"] == [2]
     assert scenes[-1].metadata["transitions"] == []
 
