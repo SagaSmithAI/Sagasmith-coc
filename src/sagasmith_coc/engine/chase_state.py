@@ -24,10 +24,27 @@ def _participant(raw: dict[str, Any], input_order: int) -> dict[str, Any]:
         raise ValueError("participant effective_mov must be positive")
     if not 0 <= dex <= 100:
         raise ValueError("participant dex must be between 0 and 100")
+    participant_kind = str(value.get("participant_kind") or "person").strip()
+    if participant_kind not in {"person", "vehicle"}:
+        raise ValueError("chase participant_kind must be person or vehicle")
+    vehicle = None
+    if participant_kind == "vehicle":
+        vehicle = dict(value.get("vehicle") or {})
+        if (
+            not str(vehicle.get("source_id") or "").strip()
+            or not str(vehicle.get("name") or "").strip()
+            or isinstance(vehicle.get("build"), bool)
+            or not isinstance(vehicle.get("build"), int)
+        ):
+            raise ValueError(
+                "vehicle chase participant requires source_id, name, and integer build"
+            )
     return {
         "actor_id": actor_id,
         "name": name,
         "role": role,
+        "participant_kind": participant_kind,
+        "vehicle": vehicle,
         "effective_mov": effective_mov,
         "dex": dex,
         "position": position,

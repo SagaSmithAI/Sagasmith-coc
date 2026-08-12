@@ -97,6 +97,7 @@ def validate_investigator_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     value.setdefault("sanity_loss_events", [])
     value.setdefault("inventory", [])
     value.setdefault("books", [])
+    value.setdefault("spells", [])
     value.setdefault("monetary", {})
     value.setdefault("backstory", {})
     value.setdefault("pulp_talents", [])

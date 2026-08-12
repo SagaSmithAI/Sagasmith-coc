@@ -103,3 +103,26 @@ def test_chase_requires_both_roles_and_explicit_end_outcome() -> None:
     ended = end_chase(state, outcome="escaped", source="The fleeing actor reached safety.")
     assert ended["active"] is False
     assert ended["outcome"] == "escaped"
+
+
+def test_vehicle_chase_preserves_source_bound_vehicle_card() -> None:
+    values = participants()
+    values[0].update(
+        {
+            "participant_kind": "vehicle",
+            "vehicle": {"source_id": "vehicle.sedan", "name": "Sedan", "build": 5},
+        }
+    )
+    values[1].update(
+        {
+            "participant_kind": "vehicle",
+            "vehicle": {"source_id": "vehicle.truck", "name": "Truck", "build": 6},
+        }
+    )
+    state = start_chase(values, source="Reviewed vehicle chase setup.")
+
+    assert state["participants"]["investigator"]["vehicle"] == {
+        "source_id": "vehicle.sedan",
+        "name": "Sedan",
+        "build": 5,
+    }

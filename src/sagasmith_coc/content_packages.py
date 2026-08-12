@@ -37,6 +37,78 @@ MODULE_CATALOG_FIELDS = frozenset(
 )
 
 
+def build_rule_content_package(
+    *,
+    package_id: str,
+    version: str,
+    title: str,
+    exported_sources: list[tuple[Mapping[str, Any], Mapping[str, Any], bytes]],
+    metadata: Mapping[str, Any] | None = None,
+    dependencies: list[Mapping[str, Any]] | None = None,
+    artifacts: list[Mapping[str, Any]] | None = None,
+    mechanics: list[Mapping[str, Any]] | None = None,
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Compile reviewed Core rule sources into a CoC schema-v2 rules Pack.
+
+    Rule interpretation stays in reviewed artifacts/mechanics.  This compiler
+    only binds immutable source evidence and the current unified Pack schema.
+    """
+
+    if not exported_sources:
+        raise ValueError("a CoC rules Pack requires at least one reviewed source")
+    sources: list[dict[str, Any]] = []
+    assets: list[dict[str, Any]] = []
+    blobs: dict[str, bytes] = {}
+    for raw_source, raw_asset, raw_blob in exported_sources:
+        source = copy.deepcopy(dict(raw_source))
+        asset = copy.deepcopy(dict(raw_asset))
+        blob = bytes(raw_blob)
+        checksum = str(asset.get("checksum") or "")
+        if not checksum or checksum in blobs:
+            raise ValueError("CoC rules Pack source assets require unique checksums")
+        sources.append(source)
+        assets.append(asset)
+        blobs[checksum] = blob
+    package_metadata = {
+        "license": "private",
+        "attribution": "User supplied source",
+        **copy.deepcopy(dict(metadata or {})),
+    }
+    manifest = {
+        "id": package_id,
+        "version": version,
+        "system_id": COC_SYSTEM_ID,
+        "title": title,
+        "classification": "core_rules",
+        "editions": ["7e"],
+        "activation": {"rule_policy": "branch"},
+    }
+    content = {
+        "classification": "core_rules",
+        "editions": ["7e"],
+        "activation": {"rule_policy": "branch"},
+        "conflicts": [],
+        "rule_definitions": [],
+        "artifacts": copy.deepcopy(list(artifacts or [])),
+        "mechanics": copy.deepcopy(list(mechanics or [])),
+    }
+    package = build_content_package(
+        kind="core_rules",
+        package_id=package_id,
+        version=version,
+        system_id=COC_SYSTEM_ID,
+        manifest=manifest,
+        dependencies=copy.deepcopy(list(dependencies or [])),
+        sources=sources,
+        assets=assets,
+        content_reviews=[],
+        actors=[],
+        content=content,
+        metadata=package_metadata,
+    )
+    return validate_coc_content_package(package), blobs
+
+
 def _require_source_refs(value: Mapping[str, Any], field: str) -> None:
     refs = value.get("source_refs")
     if not isinstance(refs, list) or not refs or any(not isinstance(ref, Mapping) for ref in refs):

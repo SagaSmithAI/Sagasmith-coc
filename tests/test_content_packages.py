@@ -8,9 +8,11 @@ from sagasmith_core.campaigns import CampaignService
 from sagasmith_core.content_pack import dumps_content_archive, loads_content_archive
 from sagasmith_core.database import Database, sqlite_database_url
 from sagasmith_core.modules import MarkdownModuleParser, ModuleService
+from sagasmith_core.rules import RuleService
 
 from sagasmith_coc.content_packages import (
     build_module_content_package,
+    build_rule_content_package,
 )
 from sagasmith_coc.module_profile import CocModuleProfile
 
@@ -21,6 +23,40 @@ def database(tmp_path: Path):
     value.create_schema()
     yield value
     value.dispose()
+
+
+def test_rule_content_package_round_trips_reviewed_core_source(database: Database) -> None:
+    rules = RuleService(database)
+    imported = rules.ingest(
+        system_id="coc7e",
+        source_key="quick-start.private",
+        title="Quick-Start Rules",
+        content="# Checks\nRoll percentile dice against the applicable value.",
+        edition="7e",
+        authority="primary",
+    )
+    exported = rules.export_content_source(imported.source_id)
+    package, blobs = build_rule_content_package(
+        package_id="coc7e.rules.quick-start.private",
+        version="1.0.0",
+        title="Quick-Start Rules",
+        exported_sources=[exported],
+        metadata={
+            "agent_finalization": {
+                "confirmed": True,
+                "reviewer": "keeper:test",
+                "note": "Reviewed the source index and rule evidence.",
+            }
+        },
+    )
+
+    assert package["schema_version"] == 2
+    assert package["kind"] == "core_rules"
+    assert package["system_id"] == "coc7e"
+    assert package["sources"][0]["source_key"] == "quick-start.private"
+    restored, restored_blobs = loads_content_archive(dumps_content_archive(package, blobs))
+    assert restored == package
+    assert restored_blobs == blobs
 
 
 def test_solo_module_ingest_uses_core_visibility_contract(database: Database) -> None:
