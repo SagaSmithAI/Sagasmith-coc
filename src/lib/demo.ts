@@ -62,6 +62,10 @@ export function demoWorkspace(campaignId: string): CampaignWorkspace {
     modules: play ? [{ id: 'demo-module-beacon', title: 'The Lightless Beacon', source_key: 'private.demo.lightless-beacon', parser_profile: 'content-package', active: true, warnings: [] }] : [],
     packs: play ? [{ id: 'demo-module-beacon', title: 'The Lightless Beacon', parser_profile: 'content-package', active: true, status: 'active' }] : [],
     finalizedDrafts: play ? [] : [{ job_id: 'demo-draft-flames', stage: 'review', title: 'Alone Against the Flames' }],
+    rulePacks: [{ pack_id: 'coc7e.rules.quick-start.private', version: '1.0.0', status: 'installed' }],
+    ruleLock: { lock: [{ pack_id: 'coc7e.rules.quick-start.private', version: '1.0.0' }] },
+    ruleSources: [{ source_id: 'demo-rules', title: 'CoC 7e Quick-Start Rules', source_key: 'quick-start.private' }],
+    conversations: play ? [{ conversation_id: 'demo-conversation', status: 'open', conversation_revision: 2, pending_activation_count: 1, participants: [{ name: '港务长' }, { name: '艾达·莫里斯' }] }] : [],
     scenes: play ? [
       { scene_id: 'demo-scene-landing', stable_key: 'landing', title: '无光海岸', module: 'The Lightless Beacon', chapter: '抵达', scene_type: 'investigation', visibility: 'player', page_start: 7, page_end: 9, tags: ['clue', 'storm'], clues: [{ title: '被冲上岸的残骸' }], checks: [{ skill: '侦查', difficulty: 'regular' }], sanity: [] },
       { scene_id: 'demo-scene-lighthouse', stable_key: 'lighthouse', title: '灯塔内部', module: 'The Lightless Beacon', chapter: '调查', scene_type: 'investigation', visibility: 'dm', page_start: 10, page_end: 16, tags: ['clue', 'danger'], clues: [{ title: '损坏的无线电' }, { title: '守塔人的记录' }], checks: [{ skill: '电气维修' }], sanity: [{ success_loss: '0', failure_loss: '1D4' }] },

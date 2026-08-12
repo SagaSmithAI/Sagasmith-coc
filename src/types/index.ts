@@ -54,6 +54,7 @@ export interface CocSheet {
   sanity_loss_events?: unknown[];
   inventory?: unknown[];
   books?: unknown[];
+  spells?: unknown[];
   monetary?: Record<string, unknown>;
   backstory?: Record<string, unknown>;
   [key: string]: unknown;
@@ -181,6 +182,10 @@ export interface CampaignWorkspace {
   modules: ModuleRecord[];
   packs: ModuleRecord[];
   finalizedDrafts: Array<Record<string, unknown>>;
+  rulePacks: Array<Record<string, unknown>>;
+  ruleLock: Record<string, unknown> | null;
+  ruleSources: Array<Record<string, unknown>>;
+  conversations: Array<Record<string, unknown>>;
   scenes: SceneRecord[];
   currentScene: SceneRecord | null;
   progress: SceneProgress[];

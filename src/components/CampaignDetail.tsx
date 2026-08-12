@@ -3,7 +3,7 @@ import { createClient, emitRuntimeStatus, TOOL_IDS, type CocToolId } from '../li
 import type { CampaignWorkspace, Investigator } from '../types';
 import { RuntimeError } from './Dashboard';
 
-type Tab = 'overview' | 'investigation' | 'content' | 'encounter' | 'continuity' | 'console';
+type Tab = 'overview' | 'investigation' | 'content' | 'rules' | 'dialogue' | 'encounter' | 'continuity' | 'console';
 
 function campaignIdFromLocation() { return new URLSearchParams(window.location.search).get('id') || ''; }
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === 'object' ? value as Record<string, unknown> : {}; }
@@ -39,17 +39,19 @@ export default function CampaignDetail() {
       <Datum label="PHASE" value={phase.toUpperCase()} accent />
       <Datum label="CAMPAIGN REVISION" value={campaign.revision} />
       <Datum label="RULESET" value={String(campaign.settings?.ruleset || 'classic').toUpperCase()} />
-      <Datum label="PACKS / SCENES" value={`${workspace.packs.length} / ${workspace.scenes.length}`} />
+      <Datum label="PACKS / SCENES" value={`${workspace.packs.length + workspace.rulePacks.length} / ${workspace.scenes.length}`} />
       <Datum label="EXPOSURE" value={workspace.exposure?.native_dynamic_tools === false ? 'NON-NATIVE' : 'NATIVE'} />
     </section>
     {workspace.warnings.length > 0 && <details className="warning-strip"><summary>{workspace.warnings.length} 个受权限或 phase 限制的读取未完成</summary>{workspace.warnings.map((item) => <p key={item}>{item}</p>)}</details>}
     <nav className="tabs" aria-label="Campaign workspaces">{([
-      ['overview', '桌面概览'], ['investigation', '调查结算'], ['content', '内容包'], ['encounter', '追逐与战斗'], ['continuity', '连续性'], ['console', 'MCP 控制台'],
+      ['overview', '桌面概览'], ['investigation', '调查结算'], ['content', '模组包'], ['rules', '规则包'], ['dialogue', 'NPC 对话'], ['encounter', '追逐与战斗'], ['continuity', '连续性'], ['console', 'MCP 控制台'],
     ] as Array<[Tab, string]>).map(([id, label]) => <button key={id} className={`tab ${tab === id ? 'active' : ''}`} onClick={() => selectTab(id)}>{label}</button>)}</nav>
     <div className="tab-panel">
       {tab === 'overview' && <Overview data={workspace} demo={client.mode === 'demo'} />}
       {tab === 'investigation' && <Investigation data={workspace} />}
       {tab === 'content' && <Content data={workspace} />}
+      {tab === 'rules' && <Rules data={workspace} />}
+      {tab === 'dialogue' && <Dialogue data={workspace} />}
       {tab === 'encounter' && <Encounter data={workspace} />}
       {tab === 'continuity' && <Continuity data={workspace} />}
       {tab === 'console' && <ToolConsole client={client} campaignId={campaign.id} disabled={client.mode === 'demo'} onMutated={load} />}
@@ -74,7 +76,7 @@ function Overview({ data, demo }: { data: CampaignWorkspace; demo: boolean }) {
       <Datum label="SAN ENCOUNTERS" value={arrayLength(scene?.sanity)} />
       <Datum label="HANDOUT / TAGS" value={arrayLength(scene?.tags)} />
     </div></section>
-    <section className="card"><div className="card-header"><strong>RUNTIME BOUNDARIES</strong><span>AUTHORITATIVE</span></div><ul className="boundary-list"><li><b>随机与结算</b><span>MCP 原子提交并返回 receipt</span></li><li><b>来源解释与受众</b><span>Agent 显式决定</span></li><li><b>版本与恢复</b><span>revision + branch + snapshot 守卫</span></li></ul></section>
+    <section className="card"><div className="card-header"><strong>RUNTIME BOUNDARIES</strong><span>AUTHORITATIVE</span></div><ul className="boundary-list"><li><b>随机与结算</b><span>MCP 原子提交并返回 receipt</span></li><li><b>来源解释与受众</b><span>Agent 显式决定</span></li><li><b>NPC 私有意图</b><span>隔离 worker；只发布派生输出</span></li><li><b>版本与恢复</b><span>revision + branch + snapshot 守卫</span></li></ul></section>
   </div>;
 }
 
@@ -99,17 +101,35 @@ function Investigation({ data }: { data: CampaignWorkspace }) {
 }
 
 function Content({ data }: { data: CampaignWorkspace }) {
-  return <div className="grid-2"><section className="card span-2"><div className="card-header"><strong>CONTENT PACK PIPELINE</strong><span>SCHEMA V2 / COC7E PROFILE</span></div><div className="pipeline"><div className="done"><b>01</b><span>机械首轮导入</span></div><div className={data.finalizedDrafts.length ? 'active' : ''}><b>02</b><span>Agent 证据审计</span></div><div className={data.packs.length ? 'done' : ''}><b>03</b><span>显式定稿</span></div><div className={data.packs.some((item) => item.active) ? 'done' : ''}><b>04</b><span>导入与激活</span></div></div></section>
+  return <div className="grid-2"><section className="card span-2"><div className="card-header"><strong>MODULE PACK PIPELINE</strong><span>SCHEMA V2 / COC7E PROFILE</span></div><div className="pipeline"><div className="done"><b>01</b><span>机械首轮导入</span></div><div className={data.finalizedDrafts.length ? 'active' : ''}><b>02</b><span>Agent 证据审计</span></div><div className={data.packs.length ? 'done' : ''}><b>03</b><span>显式定稿</span></div><div className={data.packs.some((item) => item.active) ? 'done' : ''}><b>04</b><span>导入与激活</span></div></div></section>
     <section className="card"><div className="card-header"><strong>FINALIZED PACKS</strong><span>{data.packs.length}</span></div>{data.packs.map((pack, index) => <div className="pack-row" key={String(pack.id || pack.module_id || index)}><div><b>{pack.title || pack.id || pack.module_id}</b><span>{pack.parser_profile || 'content-package'} · {pack.active ? 'ACTIVE' : pack.status || 'INSTALLED'}</span></div><i className={pack.active ? 'active' : ''}></i></div>)}{!data.packs.length && <div className="empty">尚无已导入的 CoC Module Pack。</div>}</section>
     <section className="card"><div className="card-header"><strong>DRAFT / REVIEW JOBS</strong><span>{data.finalizedDrafts.length}</span></div>{data.finalizedDrafts.map((job, index) => <div className="json-row" key={index}><b>{String(job.title || job.package_id || job.job_id || `Draft ${index + 1}`)}</b><code>{String(job.stage || job.status || 'finalized')}</code></div>)}{!data.finalizedDrafts.length && <div className="empty">没有待导入的已定稿草稿。</div>}</section>
     <section className="card span-2"><div className="card-header"><strong>SCENE INDEX</strong><span>{data.scenes.length}</span></div><div className="scene-table">{data.scenes.map((scene) => <article key={scene.scene_id}><header><span>{scene.chapter || scene.module || 'SCENE'}</span><b>{scene.visibility || 'dm'}</b></header><h4>{scene.title}</h4><footer><span>{scene.scene_type || 'investigation'}</span><span>{arrayLength(scene.clues)} clues</span><span>{arrayLength(scene.checks)} checks</span><span>{arrayLength(scene.sanity)} SAN</span>{scene.page_start && <span>p.{scene.page_start}{scene.page_end ? `–${scene.page_end}` : ''}</span>}</footer></article>)}</div></section>
   </div>;
 }
 
+function Rules({ data }: { data: CampaignWorkspace }) {
+  const lock = Array.isArray(data.ruleLock?.lock) ? data.ruleLock.lock as Array<Record<string, unknown>> : [];
+  return <div className="grid-2">
+    <section className="card span-2"><div className="card-header"><strong>CORE RULES PACK PIPELINE</strong><span>PRIVATE SOURCE / SCHEMA V2</span></div><div className="pipeline"><div className={data.ruleSources.length ? 'done' : 'active'}><b>01</b><span>规则源归一化</span></div><div className={data.ruleSources.length ? 'done' : ''}><b>02</b><span>证据检索审计</span></div><div className={data.rulePacks.length ? 'done' : ''}><b>03</b><span>定稿与导入</span></div><div className={lock.length ? 'done' : ''}><b>04</b><span>分支规则锁激活</span></div></div></section>
+    <section className="card"><div className="card-header"><strong>RULE PACKS</strong><span>{data.rulePacks.length}</span></div>{data.rulePacks.map((pack, index) => <div className="pack-row" key={String(pack.pack_id || index)}><div><b>{String(pack.title || pack.pack_id || 'Rules Pack')}</b><span>{String(pack.version || '—')} · {String(pack.status || 'installed').toUpperCase()}</span></div><i className={lock.some((item) => item.pack_id === pack.pack_id) ? 'active' : ''}></i></div>)}{!data.rulePacks.length && <div className="empty">尚未导入 CoC core_rules Pack。</div>}</section>
+    <section className="card"><div className="card-header"><strong>EFFECTIVE RULE LOCK</strong><span>{lock.length}</span></div>{lock.map((item, index) => <div className="json-row" key={String(item.pack_id || index)}><b>{String(item.pack_id || 'pack')}</b><code>{String(item.version || '—')}</code></div>)}{!lock.length && <div className="empty">当前分支没有已激活的规则包。</div>}<p className="hint">使用 `rule_query(search → expand)` 读取来源证据；模糊规则仍由 Keeper 解释。</p></section>
+    <section className="card span-2"><div className="card-header"><strong>INDEXED RULE SOURCES</strong><span>{data.ruleSources.length}</span></div><div className="scene-table">{data.ruleSources.map((source, index) => <article key={String(source.source_id || source.id || index)}><header><span>{String(source.source_key || 'SOURCE')}</span><b>COC7E</b></header><h4>{String(source.title || source.name || 'Reviewed rule source')}</h4><footer><span>{String(source.checksum || 'managed checksum')}</span></footer></article>)}</div></section>
+  </div>;
+}
+
+function Dialogue({ data }: { data: CampaignWorkspace }) {
+  return <div className="grid-2">
+    <section className="card"><div className="card-header"><strong>ACTIVE NPC CONVERSATIONS</strong><span>{data.conversations.length}</span></div>{data.phase !== 'play' && <div className="empty">隔离 NPC 对话只在 Play phase 开放。</div>}{data.conversations.map((conversation, index) => { const participants = Array.isArray(conversation.participants) ? conversation.participants as Array<Record<string, unknown>> : []; return <article className="conversation-row" key={String(conversation.conversation_id || index)}><header><b>{String(conversation.status || 'open').toUpperCase()}</b><code>REV {String(conversation.conversation_revision ?? '—')}</code></header><p>{participants.map((item) => String(item.name || item.actor_id)).join(' · ') || String(conversation.conversation_id)}</p><footer><span>{String(conversation.pending_activation_count ?? 0)} pending activations</span><span>{String(conversation.publication_count ?? 0)} publications</span></footer></article>; })}{data.phase === 'play' && !data.conversations.length && <div className="empty">没有活动对话；新对话必须列出全部参与者并至少包含一个 NPC。</div>}</section>
+    <section className="card procedure-card"><div className="card-header"><strong>ISOLATED DIALOGUE CONTRACT</strong><span>NO PRIVATE LEAKAGE</span></div><ol><li><b>Ingest</b><span>Agent 显式提交感知、理解与可回应者。</span></li><li><b>Claim locally</b><span>host-local worker 领取单个 NPC 私有 capsule。</span></li><li><b>Publish</b><span>Director 只接收服务器派生的可发布输出。</span></li><li><b>Settle</b><span>解决机制请求后，close 提交公开记录与选定变化。</span></li></ol><p className="hint">活动对话会阻止 phase、Chase 与 Combat 转换；不继续时必须 close 或 abort。</p></section>
+    <section className="card span-2"><div className="card-header"><strong>BOUNDED EVALUATION</strong><span>SIGNED / TOOL-FREE / NO STATE WRITE</span></div><div className="mode-cards"><article><b>ACTOR / FACTION</b><p>生成短期签名上下文；不能代替真人调查员选择。</p></article><article><b>AUDIENCE / SOURCE / RULING</b><p>验证严格 proposal；只有显式后续 MCP 调用才能修改权威状态。</p></article></div></section>
+  </div>;
+}
+
 function Encounter({ data }: { data: CampaignWorkspace }) {
   const encounter = data.encounter; const state = asRecord(encounter?.combat || encounter?.chase);
   return <div className="grid-2"><section className="card"><div className="card-header"><strong>AUTHORITATIVE ENCOUNTER</strong><span>{encounter ? data.phase.toUpperCase() : 'INACTIVE'}</span></div>{encounter ? <><div className="encounter-title"><span>ROUND</span><strong>{String(state.round ?? state.turn ?? '—')}</strong></div><div className="signal-grid"><Datum label="CURRENT ACTOR" value={state.current_actor_id || '—'} /><Datum label="POSITIONING" value={state.positioning_mode || 'agent'} /><Datum label="REVISION" value={encounter.campaign_revision} /><Datum label="PARTICIPANTS" value={arrayLength(state.participants || state.combatants)} /></div><div className="action-chips">{encounter.available_actions.map((item) => <span key={item}>{item}</span>)}</div></> : <div className="empty">当前没有权威追逐或战斗。追逐留在 Play；Combat 只能由 `combat_start` 进入并由 `combat_end` 返回 Play。</div>}</section>
-    <section className="card"><div className="card-header"><strong>SPATIAL CONTRACT</strong><span>EXPLICIT MODE</span></div><div className="mode-cards"><article><b>GRID</b><p>坐标、移动与几何由引擎权威结算。</p></article><article><b>AGENT</b><p>无合成坐标；距离、视线与遮挡由 Agent 基于证据裁定。</p></article></div><p className="hint">UI 只呈现 MCP 返回的 legal actions，不猜测谁能移动、反应或攻击。</p></section></div>;
+    <section className="card"><div className="card-header"><strong>SPATIAL CONTRACT</strong><span>EXPLICIT MODE</span></div><div className="mode-cards"><article><b>GRID</b><p>坐标、移动与几何由引擎权威结算。</p></article><article><b>AGENT</b><p>无合成坐标；距离、视线与遮挡由 Agent 基于证据裁定。</p></article><article><b>VEHICLE</b><p>载具绑定来源卡的 source id、名称、Build 与 MOV；碰撞后果仍由来源流程结算。</p></article></div><p className="hint">UI 只呈现 MCP 返回的 legal actions，不猜测谁能移动、反应或攻击。</p></section></div>;
 }
 
 function Continuity({ data }: { data: CampaignWorkspace }) {
@@ -123,5 +143,5 @@ function ToolConsole({ client, campaignId, disabled, onMutated }: { client: Retu
   const [args, setArgs] = useState('{}'); const [result, setResult] = useState(''); const [busy, setBusy] = useState(false);
   const invoke = async () => { setBusy(true); setResult(''); try { const parsed = JSON.parse(args) as Record<string, unknown>; const value = await client.call(tool, parsed); setResult(JSON.stringify(value, null, 2)); } catch (error) { setResult(`ERROR\n${error instanceof Error ? error.message : String(error)}`); } finally { setBusy(false); } };
   const choose = (value: CocToolId) => { setTool(value); const needsCampaign = !['server_capabilities', 'storage_status'].includes(value); setArgs(JSON.stringify(needsCampaign ? { campaign_id: campaignId } : {}, null, 2)); setResult(''); };
-  return <div className="console-layout"><section className="card console-form"><div className="card-header"><strong>NATIVE MCP TOOL</strong><span>43-TOOL CONTRACT</span></div><label>工具<select value={tool} onChange={(event) => choose(event.target.value as CocToolId)}>{TOOL_IDS.map((id) => <option key={id}>{id}</option>)}</select></label><label>Arguments（网关自动注入 principal）<textarea value={args} onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></label><div className="console-actions"><button className="btn btn-primary" disabled={disabled || busy} onClick={invoke}>{busy ? '调用中…' : '调用权威 MCP'}</button><button className="btn btn-ghost" disabled={disabled} onClick={onMutated}>调用后刷新工作台</button></div>{disabled && <p className="hint">演示模式不会发送任何工具调用。移除 `?demo=1` 并连接认证网关后才能使用。</p>}</section><section className="card console-output"><div className="card-header"><strong>STRUCTURED RESULT</strong><span>NO SYNTHETIC SUCCESS</span></div><pre>{result || '等待 MCP 返回结构化结果。\n\n写操作必须自行提供 expected_revision、expected_character_revision、expected_branch_id 和 idempotency_key 等当前 schema 要求的守卫。'}</pre></section></div>;
+  return <div className="console-layout"><section className="card console-form"><div className="card-header"><strong>NATIVE MCP TOOL</strong><span>51-TOOL CONTRACT</span></div><label>工具<select value={tool} onChange={(event) => choose(event.target.value as CocToolId)}>{TOOL_IDS.map((id) => <option key={id}>{id}</option>)}</select></label><label>Arguments（网关自动注入 principal）<textarea value={args} onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></label><div className="console-actions"><button className="btn btn-primary" disabled={disabled || busy} onClick={invoke}>{busy ? '调用中…' : '调用权威 MCP'}</button><button className="btn btn-ghost" disabled={disabled} onClick={onMutated}>调用后刷新工作台</button></div>{disabled && <p className="hint">演示模式不会发送任何工具调用。移除 `?demo=1` 并连接认证网关后才能使用。</p>}</section><section className="card console-output"><div className="card-header"><strong>STRUCTURED RESULT</strong><span>NO SYNTHETIC SUCCESS</span></div><pre>{result || '等待 MCP 返回结构化结果。\n\n写操作必须自行提供 expected_revision、expected_character_revision、expected_branch_id 和 idempotency_key 等当前 schema 要求的守卫。'}</pre></section></div>;
 }

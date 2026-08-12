@@ -11,15 +11,17 @@ import type {
 import { DEMO_CAMPAIGNS, demoInvestigator, demoWorkspace } from './demo';
 
 export const TOOL_IDS = [
-  'actor_knowledge_change', 'actor_knowledge_query', 'branch_change', 'branch_query',
+  'actor_knowledge_change', 'actor_knowledge_query', 'bounded_evaluation', 'branch_change', 'branch_query',
   'campaign_change', 'campaign_query', 'campaign_event', 'character_change', 'character_query',
   'chase_action', 'chase_end', 'chase_query', 'chase_start', 'coc_dice_roll', 'coc_hp_change',
   'coc_resolve', 'coc_sanity_check', 'combat_action', 'combat_attack', 'combat_end',
   'combat_query', 'combat_start', 'content_pack', 'continuity_context', 'development_query',
   'development_settle', 'exposure', 'game_phase', 'group_luck_check', 'group_luck_query',
-  'investigation_check', 'investigation_query', 'memory_change', 'memory_query',
-  'module_change', 'module_draft', 'module_query', 'server_capabilities', 'skill_query',
-  'snapshot_change', 'snapshot_query', 'state_revision', 'storage_status',
+  'investigation_check', 'investigation_query', 'inventory_change', 'long_term_change',
+  'memory_change', 'memory_query', 'module_change', 'module_draft', 'module_query',
+  'npc_conversation', 'npc_conversation_worker', 'rule_query', 'rulebook_draft',
+  'server_capabilities', 'skill_query', 'snapshot_change', 'snapshot_query',
+  'state_revision', 'storage_status', 'wallet_change',
 ] as const;
 
 export type CocToolId = typeof TOOL_IDS[number];
@@ -129,7 +131,8 @@ export class CocGatewayClient {
     const search = await this.call<ExposureStatus>('exposure', { action: 'search', campaign_id: campaignId, query: '' });
     const wanted = new Set([
       'branch_query', 'character_query', 'content_pack', 'investigation_query', 'module_query',
-      'snapshot_query', 'state_revision', 'chase_query', 'combat_query',
+      'npc_conversation', 'rule_query', 'snapshot_query', 'state_revision', 'chase_query',
+      'combat_query',
     ]);
     const unloaded = (search.matches ?? []).filter((item) => wanted.has(item.tool_id) && !item.loaded).map((item) => item.tool_id);
     if (unloaded.length) {
@@ -156,8 +159,10 @@ export class CocGatewayClient {
       this.call<{ progress: CampaignWorkspace['progress'] }>('module_query', { action: 'progress', campaign_id: campaignId, data: { scope_id: 'party' } }),
     ]);
     const phase = phaseResult.phase;
-    const [packResult, snapshotResult, branchResult, revisionResult] = await Promise.all([
-      guarded('Content Pack', this.call<{ packs: CampaignWorkspace['packs']; finalized_drafts: CampaignWorkspace['finalizedDrafts'] }>('content_pack', { action: 'list', campaign_id: campaignId }), { packs: [], finalized_drafts: [] }),
+    const [packResult, ruleLockResult, ruleSourcesResult, snapshotResult, branchResult, revisionResult] = await Promise.all([
+      guarded('Content Pack', this.call<{ packs: CampaignWorkspace['packs']; finalized_drafts: CampaignWorkspace['finalizedDrafts']; rule_packs?: CampaignWorkspace['rulePacks'] }>('content_pack', { action: 'list', campaign_id: campaignId }), { packs: [], finalized_drafts: [], rule_packs: [] }),
+      guarded('Effective rules', this.call<CampaignWorkspace['ruleLock']>('rule_query', { action: 'effective', campaign_id: campaignId }), null),
+      guarded('Rule sources', this.call<{ sources: CampaignWorkspace['ruleSources'] }>('rule_query', { action: 'sources', campaign_id: campaignId }), { sources: [] }),
       guarded('Snapshots', this.call<{ snapshots: CampaignWorkspace['snapshots'] }>('snapshot_query', { action: 'list', campaign_id: campaignId }), { snapshots: [] }),
       guarded('Branches', this.call<{ branches: CampaignWorkspace['branches'] }>('branch_query', { action: 'list', campaign_id: campaignId }), { branches: [] }),
       guarded('Revision history', this.call<{ revisions: CampaignWorkspace['revisions'] }>('state_revision', { action: 'history', campaign_id: campaignId, data: { limit: 30 } }), { revisions: [] }),
@@ -172,9 +177,14 @@ export class CocGatewayClient {
     let encounter: EncounterView | null = null;
     if (phase === 'combat') encounter = await guarded('Combat', this.call<EncounterView>('combat_query', { campaign_id: campaignId }), null);
     else if (Boolean(campaign.state?.chase && (campaign.state.chase as Record<string, unknown>).active)) encounter = await guarded('Chase', this.call<EncounterView>('chase_query', { campaign_id: campaignId }), null);
+    const conversations = phase === 'play'
+      ? (await guarded('NPC conversations', this.call<{ conversations: CampaignWorkspace['conversations'] }>('npc_conversation', { action: 'list', campaign_id: campaignId, data: {} }), { conversations: [] })).conversations
+      : [];
     return {
       campaign, phase, characters: charactersResult.characters, modules: modulesResult.modules,
       packs: packResult.packs, finalizedDrafts: packResult.finalized_drafts,
+      rulePacks: packResult.rule_packs ?? [], ruleLock: ruleLockResult,
+      ruleSources: ruleSourcesResult.sources, conversations,
       scenes: scenesResult.scenes, currentScene: currentResult.scene, progress: progressResult.progress,
       snapshots: snapshotResult.snapshots, branches: branchResult.branches, revisions: revisionResult.revisions,
       investigations, encounter, exposure, warnings,
