@@ -27,6 +27,10 @@ def resolve_melee_attack(
     penalty_dice: int = 0,
     attacker_name: str = "",
     weapon_name: str = "",
+    target_weapon_damage: str | None = None,
+    target_damage_bonus: str | None = None,
+    impaling: bool = False,
+    target_impaling: bool = False,
 ) -> dict:
     """
     近战攻击结算。
@@ -61,9 +65,7 @@ def resolve_melee_attack(
             "summary_line": str,
         }
     """
-    detail_lines = [
-        f"【近战攻击】{attacker_name}（{weapon_name or '徒手'}）：技能 {skill_value}%"
-    ]
+    detail_lines = [f"【近战攻击】{attacker_name}（{weapon_name or '徒手'}）：技能 {skill_value}%"]
 
     # 攻击者技能检定
     attack_result = resolve_skill_check(
@@ -113,23 +115,40 @@ def resolve_melee_attack(
     # 比较成功等级
     attack_level = attack_result["success_level"]
 
-    if target_level < SuccessLevel.FAILURE:
-        target_level = SuccessLevel.FAILURE
-
-    wins_tie = defense == "fight-back"
-    if attack_level > target_level or (wins_tie and attack_level == target_level):
+    attack_wins = attack_level >= SuccessLevel.REGULAR and attack_level > target_level
+    defender_wins = (
+        defense == "fight-back"
+        and target_level >= SuccessLevel.REGULAR
+        and target_level > attack_level
+    )
+    counterattack = None
+    if attack_wins:
         # 命中
         damage = _calc_weapon_damage(
-            weapon_damage, damage_bonus, critical=attack_result["is_critical"]
+            weapon_damage,
+            damage_bonus,
+            critical=attack_result["is_critical"],
+            impaling=impaling,
         )
         detail_lines.append(f"  → 命中！伤害: {damage['detail']}")
         summary = f"{attacker_name} 命中！{damage['total']} 点伤害"
         if attack_result["is_critical"]:
             summary += " (重击！)"
+    elif defender_wins:
+        damage = None
+        target_critical = target_level == SuccessLevel.CRITICAL
+        counterattack = _calc_weapon_damage(
+            target_weapon_damage,
+            target_damage_bonus,
+            critical=target_critical,
+            impaling=target_impaling,
+        )
+        detail_lines.append(f"  → 目标反击成功！伤害: {counterattack['detail']}")
+        summary = f"{attacker_name} 的攻击被反击，承受 {counterattack['total']} 点伤害"
     else:
         damage = None
         if attack_level == target_level:
-            detail_lines.append("  → 均势 — 攻击被格挡/闪避")
+            detail_lines.append("  → 均势 — 双方均未取得更高成功等级")
         else:
             detail_lines.append("  → 未命中 — 目标成功防御")
         summary = f"{attacker_name} 未命中"
@@ -139,6 +158,8 @@ def resolve_melee_attack(
         "success_level": attack_level,
         "target_success_level": target_level,
         "damage": damage,
+        "counterattack": counterattack,
+        "winner": "attacker" if attack_wins else "defender" if defender_wins else None,
         "is_critical": attack_result["is_critical"],
         "is_fumble": False,
         "detail_lines": detail_lines,
@@ -160,6 +181,7 @@ def resolve_ranged_attack(
     malfunction: int | None = None,
     attacker_name: str = "",
     weapon_name: str = "",
+    impaling: bool = False,
 ) -> dict:
     """
     远程攻击结算。
@@ -242,14 +264,15 @@ def resolve_ranged_attack(
         }
 
     # 命中 — 计算伤害
-    effective_db = damage_bonus if damage_bonus_full else (
-        damage_bonus if damage_bonus_half else None
+    effective_db = (
+        damage_bonus if damage_bonus_full else (damage_bonus if damage_bonus_half else None)
     )
 
     damage = _calc_weapon_damage(
         weapon_damage,
         db=effective_db,
         critical=attack_result["is_critical"],
+        impaling=impaling,
     )
     detail_lines.append(f"  → 命中！伤害: {damage['detail']}")
 
@@ -271,6 +294,7 @@ def _calc_weapon_damage(
     damage_formula: str | None,
     db: str | None = None,
     critical: bool = False,
+    impaling: bool = False,
 ) -> dict:
     """
     武器伤害结算。
@@ -302,11 +326,17 @@ def _calc_weapon_damage(
     all_db_rolls = []
 
     if critical:
-        # 重击 — 取满值
+        # 极难成功：武器骰取满值；伤害加值仍照常掷骰。贯穿武器额外再掷一次武器骰。
         weapon_total = _max_damage(damage_formula) if damage_formula else 0
         if db:
-            db_total = _max_damage(db) if '-' not in db else _min_damage(db)
-        detail = "⚡ 重击满伤!"
+            dd = roll_dice_expression(db)
+            all_db_rolls = dd["rolls"]
+            db_total = dd["total"]
+        if impaling and damage_formula:
+            extra = roll_dice_expression(damage_formula)
+            all_weapon_rolls = extra["rolls"]
+            weapon_total += extra["total"]
+        detail = "⚡ 极难伤害"
     else:
         if damage_formula:
             wd = roll_dice_expression(damage_formula)
@@ -335,55 +365,113 @@ def _calc_weapon_damage(
         "detail": (
             f"{detail} = {total}"
             if not critical
-            else f"{detail}{weapon_total}+{db_total}={total}"
+            else f"{detail}: 武器 {weapon_total} + DB {db_total} = {total}"
         ),
+    }
+
+
+def resolve_fighting_maneuver(
+    attacker_roll: int,
+    attacker_skill: int,
+    attacker_build: int,
+    defender_roll: int,
+    defender_skill: int,
+    defender_build: int,
+    *,
+    defense: str = "fight-back",
+    attacker_name: str = "",
+    maneuver: str = "",
+) -> dict:
+    """Resolve the opposed-roll portion of one source-explicit fighting maneuver.
+
+    The caller rolls the attacker with ``penalty_dice`` from this response. The
+    maneuver's narrative effect remains an explicit Agent decision and is not guessed
+    by this deterministic rule function.
+    """
+
+    if defense not in {"dodge", "fight-back"}:
+        raise ValueError("defense must be dodge or fight-back")
+    build_difference = defender_build - attacker_build
+    if build_difference >= 3:
+        return {
+            "possible": False,
+            "penalty_dice": 0,
+            "success": False,
+            "winner": None,
+            "build_difference": build_difference,
+            "maneuver": maneuver,
+            "summary_line": "Fighting maneuver is ineffective against this Build difference.",
+        }
+    penalty_dice = max(0, min(2, build_difference))
+    result = resolve_melee_attack(
+        attacker_roll,
+        attacker_skill,
+        target_dodge=defender_skill if defense == "dodge" else None,
+        target_fighting=defender_skill if defense == "fight-back" else None,
+        target_roll=defender_roll,
+        defense=defense,
+        attacker_name=attacker_name,
+        weapon_name=maneuver or "Fighting Maneuver",
+    )
+    return {
+        "possible": True,
+        "penalty_dice": penalty_dice,
+        "success": result["winner"] == "attacker",
+        "winner": result["winner"],
+        "build_difference": build_difference,
+        "maneuver": maneuver,
+        "attack_success_level": result["success_level"],
+        "defense_success_level": result["target_success_level"],
+        "summary_line": result["summary_line"],
     }
 
 
 def _max_damage(formula: str) -> int:
     """计算伤害公式的满值"""
     import re
+
     total = 0
-    parts = re.split(r'([+-])', formula)
-    current_op = '+'
+    parts = re.split(r"([+-])", formula)
+    current_op = "+"
     for part in parts:
         part = part.strip()
-        if part == '+':
-            current_op = '+'
-        elif part == '-':
-            current_op = '-'
-        elif 'D' in part.upper():
-            match = re.match(r'(\d+)D(\d+)', part.upper())
+        if part == "+":
+            current_op = "+"
+        elif part == "-":
+            current_op = "-"
+        elif "D" in part.upper():
+            match = re.match(r"(\d+)D(\d+)", part.upper())
             if match:
                 count = int(match.group(1))
                 sides = int(match.group(2))
                 value = count * sides
-                total = total + value if current_op == '+' else total - value
+                total = total + value if current_op == "+" else total - value
         elif part:
             value = int(part)
-            total = total + value if current_op == '+' else total - value
+            total = total + value if current_op == "+" else total - value
     return total
 
 
 def _min_damage(formula: str) -> int:
     """计算伤害公式的最小值（用于负DB）"""
     import re
+
     total = 0
-    parts = re.split(r'([+-])', formula)
-    current_op = '+'
+    parts = re.split(r"([+-])", formula)
+    current_op = "+"
     for part in parts:
         part = part.strip()
-        if part == '+':
-            current_op = '+'
-        elif part == '-':
-            current_op = '-'
-        elif 'D' in part.upper():
-            match = re.match(r'(\d+)D(\d+)', part.upper())
+        if part == "+":
+            current_op = "+"
+        elif part == "-":
+            current_op = "-"
+        elif "D" in part.upper():
+            match = re.match(r"(\d+)D(\d+)", part.upper())
             if match:
                 count = int(match.group(1))
                 value = count * 1  # 最小值
-                total = total + value if current_op == '+' else total - value
+                total = total + value if current_op == "+" else total - value
         elif part:
             value = int(part)
-            total = total + value if current_op == '+' else total - value
+            total = total + value if current_op == "+" else total - value
     return total

@@ -23,7 +23,8 @@ The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc
 - **Investigators** — Classic/Pulp templates, characteristics, derived values, skills, development, and occupation shapes.
 - **d100 checks** — regular/hard/extreme/critical/fumble, bonus/penalty dice, opposed rolls, and pushed rolls.
 - **Sanity and insanity** — sanity loss, temporary/indefinite insanity, and symptom data.
-- **Combat and chases** — melee, firearms, fight back/dodge, and chase state.
+- **Combat and chases** — DEX/readied-firearm order, stable ties, next-round joins, fight back/dodge, outnumbering dice, multiple attacks, dive-for-cover forfeits, Grid/Agent spatial boundaries, melee, firearms, and chase checks.
+- **Damage and recovery** — deterministic extreme/impaling damage, HP, major wounds, CON checks, unconsciousness, dying, death, First Aid, and treatment transitions.
 - **Scenario parsing** — ordinary scenarios, numbered solo nodes/transitions, and handout packs.
 - **Scene semantics** — investigation/social/combat/chase/travel/reference types, Keeper/player/read-aloud visibility, clues, checks, and SAN metadata.
 - **Unified Content Packs** — compiles reviewed Core module descriptors into `sagasmith.content-package` schema v2 archives and validates CoC-specific sourced play-profile, catalog, and ending decisions.

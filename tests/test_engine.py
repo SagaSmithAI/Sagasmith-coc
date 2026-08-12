@@ -6,6 +6,11 @@ from sagasmith_coc.engine.checks.skill import (
     resolve_skill_check,
 )
 from sagasmith_coc.engine.dice.rolls import roll_d100, roll_dice_expression
+from sagasmith_coc.random_stream import (
+    CampaignRandomStream,
+    initial_random_stream,
+    use_random_stream,
+)
 from sagasmith_coc.system import validate_investigator_sheet
 
 
@@ -52,3 +57,68 @@ def test_opposed_and_melee_defense_are_fully_resolved() -> None:
     )
     assert dodged["hit"] is False
     assert dodged["target_success_level"] >= SuccessLevel.HARD
+
+
+def test_fight_back_requires_a_strictly_better_success_and_can_deal_damage() -> None:
+    tied = resolve_melee_attack(
+        30,
+        60,
+        weapon_damage="1D3",
+        target_fighting=60,
+        target_roll=30,
+        defense="fight-back",
+        target_weapon_damage="1D3",
+    )
+    assert tied["winner"] is None
+    assert tied["damage"] is None
+    assert tied["counterattack"] is None
+
+    countered = resolve_melee_attack(
+        40,
+        60,
+        weapon_damage="1D3",
+        target_fighting=60,
+        target_roll=20,
+        defense="fight-back",
+        target_weapon_damage="1",
+    )
+    assert countered["winner"] == "defender"
+    assert countered["hit"] is False
+    assert countered["counterattack"]["total"] == 1
+
+
+def test_extreme_damage_maximizes_weapon_but_rolls_db_and_impaling_extra() -> None:
+    state = {"random_stream": initial_random_stream("extreme-damage")}
+    stream = CampaignRandomStream.from_campaign_state(
+        "campaign",
+        state,
+        operation="test.extreme",
+        idempotency_key="extreme",
+    )
+    with use_random_stream(stream):
+        ordinary = resolve_melee_attack(
+            1,
+            60,
+            weapon_damage="1D6",
+            damage_bonus="1D4",
+        )
+    assert ordinary["damage"]["weapon_total"] == 6
+    assert 1 <= ordinary["damage"]["db_total"] <= 4
+    assert stream.draw_count == 1
+
+    impaling_stream = CampaignRandomStream.from_campaign_state(
+        "campaign",
+        state,
+        operation="test.impaling",
+        idempotency_key="impaling",
+    )
+    with use_random_stream(impaling_stream):
+        impaling = resolve_melee_attack(
+            1,
+            60,
+            weapon_damage="1D6",
+            damage_bonus="1D4",
+            impaling=True,
+        )
+    assert 7 <= impaling["damage"]["weapon_total"] <= 12
+    assert impaling_stream.draw_count == 2

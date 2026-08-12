@@ -23,7 +23,8 @@ flowchart LR
 - **调查员** — Classic/Pulp 模板、属性与派生值、技能、成长和职业数据形状。
 - **d100 检定** — regular/hard/extreme/critical/fumble、奖励/惩罚骰、对抗与孤注一掷。
 - **SAN 与疯狂** — 理智损失、临时与不定期疯狂、症状数据。
-- **战斗与追逐** — 近战、远程、反击/闪避以及 chase 状态。
+- **战斗与追逐** — DEX/准备枪械顺序、稳定同值次序、下一轮加入、反击/闪避、围攻奖励骰、每轮多次攻击、俯身找掩护、Grid/Agent 空间边界，以及近战、远程与 chase 判定。
+- **伤害与恢复** — 极难/贯穿伤害、HP、重伤、CON、昏迷、濒死、死亡、急救与治疗的确定性状态转换。
 - **调查模组解析** — 普通场景、solo 编号节点与跳转、handout pack 三种 profile。
 - **场景语义** — investigation/social/combat/chase/travel/reference 等类型，Keeper/player/read-aloud 可见性、线索、检定和 SAN 元数据。
 - **统一 Content Pack** — 将审核后的 Core 模组描述编译为 `sagasmith.content-package` schema v2，校验 CoC 7e 的人数、规则模式、年代、预生成调查员、solo 支持、目录与结局证据，并生成可校验的确定性归档。
