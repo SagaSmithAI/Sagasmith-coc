@@ -23,6 +23,29 @@ def database(tmp_path: Path):
     value.dispose()
 
 
+def test_solo_module_ingest_uses_core_visibility_contract(database: Database) -> None:
+    nodes = "\n".join(
+        f"## {number}\n"
+        + (f"Go to {number + 1}.\n" if number < 10 else "The End.\n")
+        for number in range(1, 11)
+    )
+    campaign = CampaignService(database).create(system_id="coc7e", name="Solo authoring")
+    modules = ModuleService(database)
+
+    imported = modules.ingest(
+        campaign_id=campaign.id,
+        source_key="solo.md",
+        title="Solo",
+        content=f"# Solo\nInstructions.\n{nodes}",
+        parser=MarkdownModuleParser(profile=CocModuleProfile()),
+        activate=False,
+    )
+
+    scenes = modules.scene_index(campaign.id, module_id=imported.module_id)
+    assert len(scenes) == 11
+    assert all(scene["visibility"] == "party" for scene in scenes[1:])
+
+
 def test_reviewed_scenario_compiles_to_round_trip_v2_pack(database: Database) -> None:
     source_text = (
         "# The Lantern Case\n"

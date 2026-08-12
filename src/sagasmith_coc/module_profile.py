@@ -109,7 +109,7 @@ def _scene_type(title: str, text: str, *, reference: bool = False) -> str:
 
 def _visibility(scene_type: str, text: str) -> str:
     if scene_type in {"handout", "solo_node"}:
-        return "player"
+        return "party"
     if text.lstrip().startswith(">"):
         return "read_aloud"
     return "keeper"

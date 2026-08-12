@@ -72,7 +72,7 @@ def test_coc_handout_pack_creates_player_visible_assets() -> None:
         "HANDOUT: LIGHTLESS #2",
     ]
     assert scenes[0].metadata["scene_type"] == "reference"
-    assert all(scene.metadata["visibility"] == "player" for scene in scenes[1:])
+    assert all(scene.metadata["visibility"] == "party" for scene in scenes[1:])
 
 
 def test_coc_solo_scenario_creates_nodes_and_choice_edges() -> None:
@@ -88,6 +88,7 @@ def test_coc_solo_scenario_creates_nodes_and_choice_edges() -> None:
 
     assert scenes[0].metadata["scene_type"] == "reference"
     assert [scene.metadata["node_id"] for scene in scenes[1:]] == list(range(1, 11))
+    assert all(scene.metadata["visibility"] == "party" for scene in scenes[1:])
     assert scenes[1].metadata["transitions"] == [2]
     assert scenes[-1].metadata["transitions"] == []
 
