@@ -10,21 +10,7 @@ import type {
 } from '../types';
 import { DEMO_CAMPAIGNS, demoInvestigator, demoWorkspace } from './demo';
 
-export const TOOL_IDS = [
-  'actor_knowledge_change', 'actor_knowledge_query', 'bounded_evaluation', 'branch_change', 'branch_query',
-  'campaign_change', 'campaign_query', 'campaign_event', 'character_change', 'character_query',
-  'chase_action', 'chase_end', 'chase_query', 'chase_start', 'coc_dice_roll', 'coc_hp_change',
-  'coc_resolve', 'coc_sanity_check', 'combat_action', 'combat_attack', 'combat_end',
-  'combat_query', 'combat_start', 'content_pack', 'continuity_context', 'development_query',
-  'development_settle', 'exposure', 'game_phase', 'group_luck_check', 'group_luck_query',
-  'investigation_check', 'investigation_query', 'inventory_change', 'long_term_change',
-  'memory_change', 'memory_query', 'module_change', 'module_draft', 'module_query',
-  'npc_conversation', 'npc_conversation_worker', 'rule_query', 'rulebook_draft',
-  'server_capabilities', 'skill_query', 'snapshot_change', 'snapshot_query',
-  'state_revision', 'storage_status', 'wallet_change',
-] as const;
-
-export type CocToolId = typeof TOOL_IDS[number];
+export type CocToolId = string;
 
 export interface GatewaySession {
   id?: string;

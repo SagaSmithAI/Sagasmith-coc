@@ -97,9 +97,12 @@ export interface SceneRecord {
   visibility?: string;
   page_start?: number;
   page_end?: number;
-  clues?: unknown[];
-  checks?: unknown[];
-  sanity?: unknown[];
+  profile_data?: {
+    clues?: unknown[];
+    checks?: unknown[];
+    sanity?: unknown[];
+    [key: string]: unknown;
+  };
   tags?: string[];
   headings?: string[];
   content?: string;
@@ -141,6 +144,7 @@ export interface ExposureStatus {
   campaign_id?: string;
   phase?: RuntimePhase;
   loaded_tools?: string[];
+  visible_tools?: string[];
   available_tools?: string[];
   native_dynamic_tools?: boolean;
   matches?: Array<{ tool_id: string; description?: string; loaded?: boolean; roles?: string[] }>;

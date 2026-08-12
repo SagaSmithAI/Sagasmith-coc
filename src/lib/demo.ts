@@ -67,10 +67,10 @@ export function demoWorkspace(campaignId: string): CampaignWorkspace {
     ruleSources: [{ source_id: 'demo-rules', title: 'CoC 7e Quick-Start Rules', source_key: 'quick-start.private' }],
     conversations: play ? [{ conversation_id: 'demo-conversation', status: 'open', conversation_revision: 2, pending_activation_count: 1, participants: [{ name: '港务长' }, { name: '艾达·莫里斯' }] }] : [],
     scenes: play ? [
-      { scene_id: 'demo-scene-landing', stable_key: 'landing', title: '无光海岸', module: 'The Lightless Beacon', chapter: '抵达', scene_type: 'investigation', visibility: 'player', page_start: 7, page_end: 9, tags: ['clue', 'storm'], clues: [{ title: '被冲上岸的残骸' }], checks: [{ skill: '侦查', difficulty: 'regular' }], sanity: [] },
-      { scene_id: 'demo-scene-lighthouse', stable_key: 'lighthouse', title: '灯塔内部', module: 'The Lightless Beacon', chapter: '调查', scene_type: 'investigation', visibility: 'dm', page_start: 10, page_end: 16, tags: ['clue', 'danger'], clues: [{ title: '损坏的无线电' }, { title: '守塔人的记录' }], checks: [{ skill: '电气维修' }], sanity: [{ success_loss: '0', failure_loss: '1D4' }] },
+      { scene_id: 'demo-scene-landing', stable_key: 'landing', title: '无光海岸', module: 'The Lightless Beacon', chapter: '抵达', scene_type: 'investigation', visibility: 'group', page_start: 7, page_end: 9, tags: ['clue', 'storm'], profile_data: { clues: [{ title: '被冲上岸的残骸' }], checks: [{ skill: '侦查', difficulty: 'regular' }], sanity: [] } },
+      { scene_id: 'demo-scene-lighthouse', stable_key: 'lighthouse', title: '灯塔内部', module: 'The Lightless Beacon', chapter: '调查', scene_type: 'investigation', visibility: 'restricted', page_start: 10, page_end: 16, tags: ['clue', 'danger'], profile_data: { clues: [{ title: '损坏的无线电' }, { title: '守塔人的记录' }], checks: [{ skill: '电气维修' }], sanity: [{ success_loss: '0', failure_loss: '1D4' }] } },
     ] : [],
-    currentScene: play ? { scene_id: 'demo-scene-landing', stable_key: 'landing', title: '无光海岸', module: 'The Lightless Beacon', chapter: '抵达', scene_type: 'investigation', visibility: 'player', page_start: 7, page_end: 9, tags: ['clue', 'storm'], content: '暴风雨后的海岸。此文本仅用于 UI 演示。' } : null,
+    currentScene: play ? { scene_id: 'demo-scene-landing', stable_key: 'landing', title: '无光海岸', module: 'The Lightless Beacon', chapter: '抵达', scene_type: 'investigation', visibility: 'group', page_start: 7, page_end: 9, tags: ['clue', 'storm'], profile_data: { clues: [{ title: '被冲上岸的残骸' }], checks: [], sanity: [] }, content: '暴风雨后的海岸。此文本仅用于 UI 演示。' } : null,
     progress: play ? [{ scene_id: 'demo-scene-landing', scope_id: 'party', status: 'current', progress: 35, current_location_key: 'shore', state_version: 4, state: { discovered_clues: ['残骸'] } }] : [],
     snapshots: play ? [{ slot: 3, label: '登陆海岸', parent_slot: 2, branch_id: 'main', created_at: '2026-08-13T20:15:00+08:00' }, { slot: 2, label: '暴风雨', parent_slot: 1, branch_id: 'main', created_at: '2026-08-13T19:40:00+08:00' }] : [{ slot: 1, label: '角色创建完成', branch_id: 'main', created_at: '2026-08-13T18:00:00+08:00' }],
     branches: [{ id: 'main', name: 'main', head_snapshot_id: play ? 'demo-snapshot-3' : 'demo-snapshot-1' }],
@@ -80,7 +80,7 @@ export function demoWorkspace(campaignId: string): CampaignWorkspace {
       'demo-owen': { campaign_id: campaign.id, campaign_revision: campaign.revision, actor_id: 'demo-owen', pending: null },
     } : {},
     encounter: null,
-    exposure: { id: 'demo-exposure', campaign_id: campaign.id, phase: play ? 'play' : 'lobby', loaded_tools: ['campaign_query', 'game_phase', 'module_query', 'character_query'], native_dynamic_tools: true },
+    exposure: { id: 'demo-exposure', campaign_id: campaign.id, phase: play ? 'play' : 'lobby', loaded_tools: ['module_query', 'character_query'], visible_tools: ['campaign_query', 'exposure', 'game_phase', 'module_query', 'character_query'], native_dynamic_tools: true },
     warnings: [],
   };
 }

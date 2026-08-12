@@ -2,8 +2,8 @@
 
 Keeper-facing Astro/React workbench for the current `sagasmith-coc-mcp` contract.
 It covers campaign-scoped investigation, CoC Module Pack state, investigators,
-chases/combat, branches/snapshots/revisions, and an advanced console for all 43
-native MCP tools.
+chases/combat, branches/snapshots/revisions, and an advanced console populated
+only from the session's current native MCP exposure.
 
 ## Authority boundary
 

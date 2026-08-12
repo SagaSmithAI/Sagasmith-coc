@@ -1,18 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CocGatewayClient, GatewayError, TOOL_IDS } from './api';
+import { CocGatewayClient, GatewayError } from './api';
 
 describe('CoC MCP gateway contract', () => {
-  it('tracks the exact 51-tool native contract', () => {
-    expect(TOOL_IDS).toHaveLength(51);
-    expect(new Set(TOOL_IDS).size).toBe(51);
-    expect(TOOL_IDS).toContain('investigation_check');
-    expect(TOOL_IDS).toContain('content_pack');
-    expect(TOOL_IDS).toContain('combat_query');
-    expect(TOOL_IDS).toContain('rulebook_draft');
-    expect(TOOL_IDS).toContain('bounded_evaluation');
-    expect(TOOL_IDS).toContain('npc_conversation_worker');
-  });
-
   it('uses credentials and never adds a browser principal', async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createClient, emitRuntimeStatus, TOOL_IDS, type CocToolId } from '../lib/api';
+import { createClient, emitRuntimeStatus, type CocToolId } from '../lib/api';
 import type { CampaignWorkspace, Investigator } from '../types';
 import { RuntimeError } from './Dashboard';
 
@@ -54,7 +54,7 @@ export default function CampaignDetail() {
       {tab === 'dialogue' && <Dialogue data={workspace} />}
       {tab === 'encounter' && <Encounter data={workspace} />}
       {tab === 'continuity' && <Continuity data={workspace} />}
-      {tab === 'console' && <ToolConsole client={client} campaignId={campaign.id} disabled={client.mode === 'demo'} onMutated={load} />}
+      {tab === 'console' && <ToolConsole client={client} campaignId={campaign.id} exposure={workspace.exposure} disabled={client.mode === 'demo'} onMutated={load} />}
     </div>
   </div>;
 }
@@ -63,6 +63,7 @@ function Datum({ label, value, accent = false }: { label: string; value: unknown
 
 function Overview({ data, demo }: { data: CampaignWorkspace; demo: boolean }) {
   const scene = data.currentScene;
+  const profile = scene?.profile_data ?? {};
   const progress = data.progress.find((item) => item.scene_id === scene?.scene_id);
   const percent = Number(progress?.progress ?? progress?.percent ?? 0);
   return <div className="grid-2">
@@ -72,8 +73,8 @@ function Overview({ data, demo }: { data: CampaignWorkspace; demo: boolean }) {
     </section>
     <section className="card"><div className="card-header"><strong>INVESTIGATION SIGNALS</strong><span>AGENT-DECIDED MEANING</span></div><div className="signal-grid">
       <Datum label="PENDING CHECKS" value={Object.values(data.investigations).filter((item) => item.pending).length} />
-      <Datum label="SCENE CLUES" value={arrayLength(scene?.clues)} />
-      <Datum label="SAN ENCOUNTERS" value={arrayLength(scene?.sanity)} />
+      <Datum label="SCENE CLUES" value={arrayLength(profile.clues)} />
+      <Datum label="SAN ENCOUNTERS" value={arrayLength(profile.sanity)} />
       <Datum label="HANDOUT / TAGS" value={arrayLength(scene?.tags)} />
     </div></section>
     <section className="card"><div className="card-header"><strong>RUNTIME BOUNDARIES</strong><span>AUTHORITATIVE</span></div><ul className="boundary-list"><li><b>随机与结算</b><span>MCP 原子提交并返回 receipt</span></li><li><b>来源解释与受众</b><span>Agent 显式决定</span></li><li><b>NPC 私有意图</b><span>隔离 worker；只发布派生输出</span></li><li><b>版本与恢复</b><span>revision + branch + snapshot 守卫</span></li></ul></section>
@@ -104,7 +105,7 @@ function Content({ data }: { data: CampaignWorkspace }) {
   return <div className="grid-2"><section className="card span-2"><div className="card-header"><strong>MODULE PACK PIPELINE</strong><span>SCHEMA V2 / COC7E PROFILE</span></div><div className="pipeline"><div className="done"><b>01</b><span>机械首轮导入</span></div><div className={data.finalizedDrafts.length ? 'active' : ''}><b>02</b><span>Agent 证据审计</span></div><div className={data.packs.length ? 'done' : ''}><b>03</b><span>显式定稿</span></div><div className={data.packs.some((item) => item.active) ? 'done' : ''}><b>04</b><span>导入与激活</span></div></div></section>
     <section className="card"><div className="card-header"><strong>FINALIZED PACKS</strong><span>{data.packs.length}</span></div>{data.packs.map((pack, index) => <div className="pack-row" key={String(pack.id || pack.module_id || index)}><div><b>{pack.title || pack.id || pack.module_id}</b><span>{pack.parser_profile || 'content-package'} · {pack.active ? 'ACTIVE' : pack.status || 'INSTALLED'}</span></div><i className={pack.active ? 'active' : ''}></i></div>)}{!data.packs.length && <div className="empty">尚无已导入的 CoC Module Pack。</div>}</section>
     <section className="card"><div className="card-header"><strong>DRAFT / REVIEW JOBS</strong><span>{data.finalizedDrafts.length}</span></div>{data.finalizedDrafts.map((job, index) => <div className="json-row" key={index}><b>{String(job.title || job.package_id || job.job_id || `Draft ${index + 1}`)}</b><code>{String(job.stage || job.status || 'finalized')}</code></div>)}{!data.finalizedDrafts.length && <div className="empty">没有待导入的已定稿草稿。</div>}</section>
-    <section className="card span-2"><div className="card-header"><strong>SCENE INDEX</strong><span>{data.scenes.length}</span></div><div className="scene-table">{data.scenes.map((scene) => <article key={scene.scene_id}><header><span>{scene.chapter || scene.module || 'SCENE'}</span><b>{scene.visibility || 'dm'}</b></header><h4>{scene.title}</h4><footer><span>{scene.scene_type || 'investigation'}</span><span>{arrayLength(scene.clues)} clues</span><span>{arrayLength(scene.checks)} checks</span><span>{arrayLength(scene.sanity)} SAN</span>{scene.page_start && <span>p.{scene.page_start}{scene.page_end ? `–${scene.page_end}` : ''}</span>}</footer></article>)}</div></section>
+    <section className="card span-2"><div className="card-header"><strong>SCENE INDEX</strong><span>{data.scenes.length}</span></div><div className="scene-table">{data.scenes.map((scene) => <article key={scene.scene_id}><header><span>{scene.chapter || scene.module || 'SCENE'}</span><b>{scene.visibility || 'restricted'}</b></header><h4>{scene.title}</h4><footer><span>{scene.scene_type || 'investigation'}</span><span>{arrayLength(scene.profile_data?.clues)} clues</span><span>{arrayLength(scene.profile_data?.checks)} checks</span><span>{arrayLength(scene.profile_data?.sanity)} SAN</span>{scene.page_start && <span>p.{scene.page_start}{scene.page_end ? `–${scene.page_end}` : ''}</span>}</footer></article>)}</div></section>
   </div>;
 }
 
@@ -138,10 +139,11 @@ function Continuity({ data }: { data: CampaignWorkspace }) {
     <section className="card span-2"><div className="card-header"><strong>REVISION RECEIPTS</strong><span>{data.revisions.length}</span></div><div className="revision-list">{data.revisions.map((revision, index) => <div key={String(revision.id || index)}><code>{String(revision.id || `#${index + 1}`)}</code><b>{String(revision.operation || revision.kind || 'unknown operation')}</b><span>{String(revision.actor || revision.principal_id || '—')}</span></div>)}</div>{!data.revisions.length && <div className="empty">没有可见修订记录。</div>}</section></div>;
 }
 
-function ToolConsole({ client, campaignId, disabled, onMutated }: { client: ReturnType<typeof createClient>; campaignId: string; disabled: boolean; onMutated: () => void }) {
-  const [tool, setTool] = useState<CocToolId>('server_capabilities');
+function ToolConsole({ client, campaignId, exposure, disabled, onMutated }: { client: ReturnType<typeof createClient>; campaignId: string; exposure: CampaignWorkspace['exposure']; disabled: boolean; onMutated: () => void }) {
+  const tools = exposure?.visible_tools ?? [];
+  const [tool, setTool] = useState<CocToolId>(tools[0] ?? 'exposure');
   const [args, setArgs] = useState('{}'); const [result, setResult] = useState(''); const [busy, setBusy] = useState(false);
   const invoke = async () => { setBusy(true); setResult(''); try { const parsed = JSON.parse(args) as Record<string, unknown>; const value = await client.call(tool, parsed); setResult(JSON.stringify(value, null, 2)); } catch (error) { setResult(`ERROR\n${error instanceof Error ? error.message : String(error)}`); } finally { setBusy(false); } };
   const choose = (value: CocToolId) => { setTool(value); const needsCampaign = !['server_capabilities', 'storage_status'].includes(value); setArgs(JSON.stringify(needsCampaign ? { campaign_id: campaignId } : {}, null, 2)); setResult(''); };
-  return <div className="console-layout"><section className="card console-form"><div className="card-header"><strong>NATIVE MCP TOOL</strong><span>51-TOOL CONTRACT</span></div><label>工具<select value={tool} onChange={(event) => choose(event.target.value as CocToolId)}>{TOOL_IDS.map((id) => <option key={id}>{id}</option>)}</select></label><label>Arguments（网关自动注入 principal）<textarea value={args} onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></label><div className="console-actions"><button className="btn btn-primary" disabled={disabled || busy} onClick={invoke}>{busy ? '调用中…' : '调用权威 MCP'}</button><button className="btn btn-ghost" disabled={disabled} onClick={onMutated}>调用后刷新工作台</button></div>{disabled && <p className="hint">演示模式不会发送任何工具调用。移除 `?demo=1` 并连接认证网关后才能使用。</p>}</section><section className="card console-output"><div className="card-header"><strong>STRUCTURED RESULT</strong><span>NO SYNTHETIC SUCCESS</span></div><pre>{result || '等待 MCP 返回结构化结果。\n\n写操作必须自行提供 expected_revision、expected_character_revision、expected_branch_id 和 idempotency_key 等当前 schema 要求的守卫。'}</pre></section></div>;
+  return <div className="console-layout"><section className="card console-form"><div className="card-header"><strong>NATIVE MCP TOOL</strong><span>{tools.length} CURRENTLY EXPOSED</span></div><label>工具<select value={tool} onChange={(event) => choose(event.target.value as CocToolId)}>{tools.map((id) => <option key={id}>{id}</option>)}</select></label><label>Arguments（网关自动注入 principal）<textarea value={args} onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></label><div className="console-actions"><button className="btn btn-primary" disabled={disabled || busy} onClick={invoke}>{busy ? '调用中…' : '调用权威 MCP'}</button><button className="btn btn-ghost" disabled={disabled} onClick={onMutated}>调用后刷新工作台</button></div>{disabled && <p className="hint">演示模式不会发送任何工具调用。移除 `?demo=1` 并连接认证网关后才能使用。</p>}</section><section className="card console-output"><div className="card-header"><strong>STRUCTURED RESULT</strong><span>NO SYNTHETIC SUCCESS</span></div><pre>{result || '等待 MCP 返回结构化结果。\n\n写操作必须自行提供 expected_revision、expected_character_revision、expected_branch_id 和 idempotency_key 等当前 schema 要求的守卫。'}</pre></section></div>;
 }
