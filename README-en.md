@@ -26,6 +26,8 @@ The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc
 - **Combat and chases** — melee, firearms, fight back/dodge, and chase state.
 - **Scenario parsing** — ordinary scenarios, numbered solo nodes/transitions, and handout packs.
 - **Scene semantics** — investigation/social/combat/chase/travel/reference types, Keeper/player/read-aloud visibility, clues, checks, and SAN metadata.
+- **Unified Content Packs** — compiles reviewed Core module descriptors into `sagasmith.content-package` schema v2 archives and validates CoC-specific sourced play-profile, catalog, and ending decisions.
+- **Replayable randomness** — a SHA-256 counter stream persists positions and receipts across snapshots; d100, damage, development, and madness tables share the authoritative source.
 - **Shared Core services** — campaigns, characters, imports, scoped scene progress, branch snapshots, events, memory, and retrieval.
 
 ## Quick start

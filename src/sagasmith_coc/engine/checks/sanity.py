@@ -9,8 +9,9 @@ CoC 7e 理智系统 (Sanity) — 理智损失、临时/不定期疯狂、狂乱�
     - Pulp 规则: 可消耗 Luck 减半理智损失
 """
 
-import random
 from enum import IntEnum
+
+from sagasmith_coc.random_stream import randint
 
 
 class InsanityType(IntEnum):
@@ -184,7 +185,7 @@ def roll_bout_of_madness(real_time: bool = True) -> dict:
         }
     """
     table = BOUT_TABLE_REAL if real_time else BOUT_TABLE_SUMMARY
-    roll = random.randint(1, 10)
+    roll = randint(1, 10)
     name, desc = table[roll - 1]
 
     return {

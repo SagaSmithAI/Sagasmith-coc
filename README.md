@@ -26,6 +26,8 @@ flowchart LR
 - **战斗与追逐** — 近战、远程、反击/闪避以及 chase 状态。
 - **调查模组解析** — 普通场景、solo 编号节点与跳转、handout pack 三种 profile。
 - **场景语义** — investigation/social/combat/chase/travel/reference 等类型，Keeper/player/read-aloud 可见性、线索、检定和 SAN 元数据。
+- **统一 Content Pack** — 将审核后的 Core 模组描述编译为 `sagasmith.content-package` schema v2，校验 CoC 7e 的人数、规则模式、年代、预生成调查员、solo 支持、目录与结局证据，并生成可校验的确定性归档。
+- **可复现随机流** — SHA-256 counter 随机流、位置与收据可随战役 Snapshot 保存和恢复；d100、伤害、成长与疯狂表共享同一权威随机源。
 - **Core 能力复用** — 战役、角色、导入、场景进度、分支 Snapshot、事件、记忆与检索。
 
 ## 快速开始

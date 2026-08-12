@@ -1,8 +1,9 @@
 """
 CoC 7e d100 骰子引擎
 """
-import random
 import re
+
+from sagasmith_coc.random_stream import randint
 
 
 def roll_d100(bonus_dice: int = 0, penalty_dice: int = 0) -> dict:
@@ -28,15 +29,16 @@ def roll_d100(bonus_dice: int = 0, penalty_dice: int = 0) -> dict:
             "detail": str,          # 人类可读描述
         }
     """
-    bonus_dice = max(0, min(2, bonus_dice))
-    penalty_dice = max(0, min(2, penalty_dice))
+    bonus_dice = max(0, min(2, int(bonus_dice)))
+    penalty_dice = max(0, min(2, int(penalty_dice)))
+    net_dice = bonus_dice - penalty_dice
 
     # 基础十位骰和个位骰
-    base_tens = random.randint(1, 10)
-    unit = random.randint(1, 10)
+    base_tens = randint(1, 10)
+    unit = randint(1, 10)
 
     # 奖励/惩罚骰（额外十位骰）
-    extra_tens = [random.randint(1, 10) for _ in range(bonus_dice + penalty_dice)]
+    extra_tens = [randint(1, 10) for _ in range(abs(net_dice))]
 
     # 在 COC 中，十位骰的 10 = 0（十位为 0）
     def to_decader(val):
@@ -54,26 +56,14 @@ def roll_d100(bonus_dice: int = 0, penalty_dice: int = 0) -> dict:
 
     possible_totals = [calc_total(d) for d in decaders]
 
-    if penalty_dice > 0 and bonus_dice == 0:
+    if net_dice < 0:
         # 惩罚: 取最高
         total = max(possible_totals)
         mode = "惩罚"
-    elif bonus_dice > 0 and penalty_dice == 0:
+    elif net_dice > 0:
         # 奖励: 取最低
         total = min(possible_totals)
         mode = "奖励"
-    elif bonus_dice > 0 and penalty_dice > 0:
-        # 同时有奖励和惩罚时，按"有效修正"处理
-        net = bonus_dice - penalty_dice
-        if net > 0:
-            total = min(possible_totals)
-            mode = "奖励"
-        elif net < 0:
-            total = max(possible_totals)
-            mode = "惩罚"
-        else:
-            total = possible_totals[0]
-            mode = "普通"
     else:
         total = possible_totals[0]
         mode = "普通"
@@ -156,7 +146,7 @@ def roll_dice_expression(expr: str) -> dict:
         sides = int(match.group("sides"))
         if not 1 <= count <= 100 or not 2 <= sides <= 1000:
             raise ValueError("骰子数量或面数超出支持范围")
-        values = [random.randint(1, sides) for _ in range(count)]
+        values = [randint(1, sides) for _ in range(count)]
         all_rolls.extend(values)
         total += sign * sum(values)
         detail_parts.append(f"{'-' if sign < 0 else ''}{count}D{sides}{values}")
@@ -190,7 +180,7 @@ def roll_stat(formula: str = "3D6*5") -> int:
         count = int(match.group(1))
         sides = int(match.group(2))
         multiplier = int(match.group(3)) if match.group(3) else 1
-        rolls = [random.randint(1, sides) for _ in range(count)]
+        rolls = [randint(1, sides) for _ in range(count)]
         if "2D6+6" in formula.upper():
             # 处理 "2D6+6" 格式
             return (sum(rolls) + 6) * multiplier
@@ -203,7 +193,7 @@ def roll_stat(formula: str = "3D6*5") -> int:
         sides = int(match.group(2))
         add = int(match.group(3))
         multiplier = int(match.group(4))
-        rolls = [random.randint(1, sides) for _ in range(count)]
+        rolls = [randint(1, sides) for _ in range(count)]
         return (sum(rolls) + add) * multiplier
 
     raise ValueError(f"无法解析属性公式: {formula}")

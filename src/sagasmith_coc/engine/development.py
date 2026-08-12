@@ -8,7 +8,7 @@ CoC 的"升级"系统:
     - 幸运成长: d100 > 当前幸运 → +2D10
 """
 
-import random
+from sagasmith_coc.random_stream import randint
 
 
 def resolve_skill_development(
@@ -38,7 +38,7 @@ def resolve_skill_development(
         }
     """
     # 确定成长量
-    improvement_roll = random.randint(1, 100)
+    improvement_roll = randint(1, 100)
     improved = improvement_roll > current_value
 
     if not improved:
@@ -56,15 +56,15 @@ def resolve_skill_development(
         }
 
     # 掷成长骰 1D10
-    gain_roll = random.randint(1, 10)
+    gain_roll = randint(1, 10)
     new_value = min(100, current_value + gain_roll)
 
     # 掌握判定
     mastered = new_value >= 90
     san_recovery = None
     if mastered:
-        san_roll1 = random.randint(1, 6)
-        san_roll2 = random.randint(1, 6)
+        san_roll1 = randint(1, 6)
+        san_roll2 = randint(1, 6)
         san_recovery = san_roll1 + san_roll2
 
     detail_lines = [
@@ -110,7 +110,7 @@ def resolve_luck_development(
             "summary_line": str,
         }
     """
-    improvement_roll = random.randint(1, 100)
+    improvement_roll = randint(1, 100)
     improved = improvement_roll > current_luck
 
     if not improved:
@@ -126,8 +126,8 @@ def resolve_luck_development(
         }
 
     # 2D10
-    r1 = random.randint(1, 10)
-    r2 = random.randint(1, 10)
+    r1 = randint(1, 10)
+    r2 = randint(1, 10)
     gain = r1 + r2
     new_value = current_luck + gain
 
