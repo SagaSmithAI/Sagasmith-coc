@@ -24,6 +24,7 @@ flowchart LR
 - **d100 检定** — regular/hard/extreme/critical/fumble、奖励/惩罚骰、对抗与孤注一掷。
 - **SAN 与疯狂** — 理智损失、临时与不定期疯狂、症状数据。
 - **战斗与追逐** — DEX/准备枪械顺序、稳定同值次序、下一轮加入、反击/闪避、围攻奖励骰、每轮多次攻击、俯身找掩护、Grid/Agent 空间边界，以及近战、远程与 chase 判定。
+- **追逐状态** — 使用明确的 CON/Drive Auto/Pack 技能做速度检定，以最慢有效 MOV 计算行动点，并确定性维护 DEX 顺序、行动点消耗、路线位置、距离、回合重置和来源明确的结束结果；不再用 `MOV*5` 猜测技能值。
 - **伤害与恢复** — 极难/贯穿伤害、HP、重伤、CON、昏迷、濒死、死亡、急救与治疗的确定性状态转换。
 - **调查模组解析** — 普通场景、solo 编号节点与跳转、handout pack 三种 profile。
 - **场景语义** — investigation/social/combat/chase/travel/reference 等类型，Keeper/player/read-aloud 可见性、线索、检定和 SAN 元数据。

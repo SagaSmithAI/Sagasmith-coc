@@ -24,6 +24,7 @@ The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc
 - **d100 checks** — regular/hard/extreme/critical/fumble, bonus/penalty dice, opposed rolls, and pushed rolls.
 - **Sanity and insanity** — sanity loss, temporary/indefinite insanity, and symptom data.
 - **Combat and chases** — DEX/readied-firearm order, stable ties, next-round joins, fight back/dodge, outnumbering dice, multiple attacks, dive-for-cover forfeits, Grid/Agent spatial boundaries, melee, firearms, and chase checks.
+- **Chase state** — explicit CON/Drive Auto/Pack-defined speed checks, action points relative to the slowest effective MOV, deterministic DEX order, point consumption, route position, distance, round reset, and source-explicit outcomes. The engine no longer invents a skill as `MOV*5`.
 - **Damage and recovery** — deterministic extreme/impaling damage, HP, major wounds, CON checks, unconsciousness, dying, death, First Aid, and treatment transitions.
 - **Scenario parsing** — ordinary scenarios, numbered solo nodes/transitions, and handout packs.
 - **Scene semantics** — investigation/social/combat/chase/travel/reference types, Keeper/player/read-aloud visibility, clues, checks, and SAN metadata.

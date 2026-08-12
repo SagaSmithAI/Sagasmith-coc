@@ -2,9 +2,8 @@
 CoC 7e 追逐系统引擎。
 
 追逐规则:
-    - 参与者按 MOV 排序
-    - 每轮行动次数 = MOV - 偏移 + 1
-    - 速度检定: 成功 → MOV+1 / 失败 → MOV-1
+    - 每轮行动次数 = MOV - 追逐中最慢 MOV + 1
+    - 速度检定使用明确的 CON、Drive Auto 或 Pack 指定技能，不能用 MOV*5 猜测
     - 可以进行射击、施法等追逐行动
 """
 
@@ -13,7 +12,9 @@ from .skill import SuccessLevel, resolve_skill_check
 
 def resolve_chase_speed_check(
     d100_result: int,
+    skill_value: int,
     current_mov: int,
+    slowest_mov: int,
     difficulty: str = "regular",
     participant_name: str = "",
 ) -> dict:
@@ -21,15 +22,17 @@ def resolve_chase_speed_check(
     追逐速度检定。
 
     CoC 追逐规则:
-        - 大成功/极难成功: MOV + 2
-        - 困难成功: MOV + 1
+        - 大成功/极难成功: MOV + 1
+        - 困难/常规成功: MOV 不变
         - 常规成功: MOV 不变
         - 失败: MOV - 1
         - 大失败: MOV - 1 且绊倒/物品掉落
 
     参数:
         d100_result: 速度检定 d100 结果
+        skill_value: 来源指定的 CON、Drive Auto 或其他检定值
         current_mov: 当前 MOV 值
+        slowest_mov: 追逐中已纳入参与者的最慢 MOV
         difficulty: 难度
         participant_name: 参与者名称
 
@@ -44,10 +47,6 @@ def resolve_chase_speed_check(
             "summary_line": str,
         }
     """
-    # 但 COC 追逐中实际上是 d100 vs 某个固定难度
-    # 此处简化: 使用 MOV 值作为百分比
-    skill_value = current_mov * 5  # MOV 8 → 40%
-
     result = resolve_skill_check(
         d100_total=d100_result,
         threshold=skill_value,
@@ -61,8 +60,6 @@ def resolve_chase_speed_check(
     mov_change = 0
 
     if success_level >= SuccessLevel.EXTREME:
-        mov_change = 2
-    elif success_level >= SuccessLevel.HARD:
         mov_change = 1
     elif success_level >= SuccessLevel.REGULAR:
         mov_change = 0
@@ -72,7 +69,7 @@ def resolve_chase_speed_check(
             tripped = True
 
     new_mov = max(1, current_mov + mov_change)
-    actions = calc_chase_actions(new_mov)
+    actions = calc_chase_actions(new_mov, slowest_mov)
 
     detail_lines = [
         f"【追逐速度检定】{participant_name}：当前 MOV {current_mov}",
@@ -98,21 +95,22 @@ def resolve_chase_speed_check(
     }
 
 
-def calc_chase_actions(mov: int, offset: int = 0) -> int:
+def calc_chase_actions(mov: int, slowest_mov: int) -> int:
     """
     计算追逐中的可行动作次数。
 
-    公式: actions = MOV - offset + 1
-    offset 通常为 0，但在复杂地形中可能 > 0
+    公式: actions = MOV - slowest MOV + 1
 
     参数:
         mov: 当前 MOV 值
-        offset: 追逐偏移值 (通常 0)
+        slowest_mov: 已纳入追逐的最慢 MOV
 
     返回:
         int: 可行动作次数
     """
-    return max(1, mov - offset + 1)
+    if mov < 1 or slowest_mov < 1:
+        raise ValueError("mov and slowest_mov must be positive")
+    return max(1, mov - slowest_mov + 1)
 
 
 def can_assist(participant_mov: int, target_mov: int) -> bool:

@@ -144,6 +144,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--loss", type=int)
     parser.add_argument("--daily-loss", type=int, default=0)
     parser.add_argument("--mov", type=int)
+    parser.add_argument("--slowest-mov", type=int)
     parser.add_argument("--distance", type=int, default=0)
     parser.add_argument("--current-value", type=int)
     parser.add_argument("--dense", action="store_true")
@@ -620,7 +621,9 @@ def _dispatch(args) -> Any:
             if args.action == "speed":
                 return resolve_chase_speed_check(
                     args.roll or roll_d100()["total"],
+                    _require(args.threshold, "threshold"),
                     _require(args.mov, "mov"),
+                    _require(args.slowest_mov, "slowest-mov"),
                     difficulty=args.difficulty or "regular",
                 )
             if args.action == "act":
