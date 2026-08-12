@@ -80,6 +80,10 @@ def test_solo_module_ingest_uses_core_visibility_contract(database: Database) ->
     scenes = modules.scene_index(campaign.id, module_id=imported.module_id)
     assert len(scenes) == 11
     assert all(scene["visibility"] == "group" for scene in scenes[1:])
+    assert [scene["profile_data"]["node_id"] for scene in scenes[1:]] == list(
+        range(1, 11)
+    )
+    assert "node_id" not in scenes[1]
 
 
 def test_reviewed_scenario_compiles_to_round_trip_v2_pack(database: Database) -> None:
@@ -176,6 +180,22 @@ def test_reviewed_scenario_compiles_to_round_trip_v2_pack(database: Database) ->
     assert package["system_id"] == "coc7e"
     assert package["kind"] == "module"
     assert package["content"]["scene_atlas"][0]["stable_key"] == scene["stable_key"]
+    assert "profile_data" in package["content"]["scene_atlas"][0]["metadata"]
+    imported_campaign = CampaignService(database).create(
+        system_id="coc7e", name="Imported finalized Pack"
+    )
+    imported_pack = modules.import_content_package(
+        imported_campaign.id,
+        package,
+        blobs,
+        activate=True,
+    )
+    imported_scenes = modules.scene_index(
+        imported_campaign.id,
+        module_id=imported_pack["module_id"],
+    )
+    assert imported_scenes[1]["profile_data"]["scene_type"] == "investigation"
+    assert "profile_data" not in imported_scenes[1]["profile_data"]
     loaded, loaded_blobs = loads_content_archive(dumps_content_archive(package, blobs))
     assert loaded == package
     assert loaded_blobs == blobs

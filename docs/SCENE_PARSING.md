@@ -49,14 +49,16 @@ Each scene should expose:
 ```json
 {
   "scene_type": "investigation",
-  "visibility": "keeper",
+  "visibility": "restricted",
   "subsections": [],
-  "clues": [],
-  "checks": [],
-  "sanity": [],
-  "entities": [],
-  "transitions": [],
-  "tags": []
+  "tags": [],
+  "profile_data": {
+    "clues": [],
+    "checks": [],
+    "sanity": [],
+    "entities": [],
+    "transitions": []
+  }
 }
 ```
 

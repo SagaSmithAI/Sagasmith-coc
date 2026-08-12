@@ -34,6 +34,7 @@ from sagasmith_coc.engine.development import (
 )
 from sagasmith_coc.engine.dice.rolls import roll_d100, roll_dice_expression
 from sagasmith_coc.module_profile import CocModuleProfile
+from sagasmith_coc.retrieval import COC7E_QUERY_HINTS
 from sagasmith_coc.runtime import database, dense_components
 from sagasmith_coc.system import COC7E, validate_investigator_sheet
 
@@ -385,6 +386,7 @@ def _dispatch(args) -> Any:
                         for item in rules.search(
                             system_id=COC7E.id,
                             query=_require(args.query, "query"),
+                            query_hints=COC7E_QUERY_HINTS,
                             edition="7e",
                             locale=locale,
                             publications=publications,
@@ -431,6 +433,7 @@ def _dispatch(args) -> Any:
                         for item in modules.search(
                             campaign_id=_require(args.campaign, "campaign"),
                             query=_require(args.query, "query"),
+                            query_hints=COC7E_QUERY_HINTS,
                             top_k=args.limit,
                             embedder=embedder,
                             vector_store=vectors,

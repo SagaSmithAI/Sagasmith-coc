@@ -110,8 +110,13 @@ def _scene_type(title: str, text: str, *, reference: bool = False) -> str:
 def _visibility(scene_type: str, text: str) -> str:
     if scene_type in {"handout", "solo_node"}:
         return "group"
-    if text.lstrip().startswith(">"):
-        return "read_aloud"
+    content_lines = [
+        line.lstrip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if content_lines and content_lines[0].startswith(">"):
+        return "public"
     return "restricted"
 
 

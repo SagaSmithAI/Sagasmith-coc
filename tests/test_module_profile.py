@@ -75,6 +75,14 @@ def test_coc_handout_pack_creates_player_visible_assets() -> None:
     assert all(scene.metadata["visibility"] == "group" for scene in scenes[1:])
 
 
+def test_coc_read_aloud_scene_uses_canonical_public_visibility() -> None:
+    parsed = MarkdownModuleParser(profile=CocModuleProfile()).parse(
+        "# Scenario\n## The Warning\n> You hear a bell beneath the sea.\n"
+    )
+
+    assert parsed[0].scenes[1].metadata["visibility"] == "public"
+
+
 def test_coc_solo_scenario_creates_nodes_and_choice_edges() -> None:
     nodes = "\n".join(
         f"## **{number}**\n"
