@@ -22,6 +22,7 @@ The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc
 
 - **Investigators** — Classic/Pulp templates, characteristics, derived values, skills, development, and occupation shapes.
 - **d100 checks** — regular/hard/extreme/critical/fumble, bonus/penalty dice, source-correct opposed ties, pushed-roll state, and exact Spending Luck options. Luck cannot buy a Critical or alter a pushed, fumbled, Luck, SAN, damage, or malfunction roll.
+- **Combined, group Luck, and development mechanics** — one shared percentile result compared against Keeper-declared `any` or `all` traits, deterministic lowest-Luck group candidates, and checked-skill improvement rolls with bounded mastery rewards.
 - **Sanity and insanity** — sanity loss, temporary/indefinite insanity, and symptom data.
 - **Combat and chases** — DEX/readied-firearm order, stable ties, next-round joins, fight back/dodge, outnumbering dice, multiple attacks, dive-for-cover forfeits, Grid/Agent spatial boundaries, melee, firearms, and chase checks.
 - **Chase state** — explicit CON/Drive Auto/Pack-defined speed checks, action points relative to the slowest effective MOV, deterministic DEX order, point consumption, route position, distance, round reset, and source-explicit outcomes. The engine no longer invents a skill as `MOV*5`.

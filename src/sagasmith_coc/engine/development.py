@@ -1,155 +1,137 @@
-"""
-CoC 7e 技能成长引擎。
+"""Deterministic Call of Cthulhu 7e development mechanics."""
 
-CoC 的"升级"系统:
-    - 使用技能时获得成长标记（在技能检定中 roll 常规成功）
-    - 幕间成长: d100 > 当前技能值 → +1D10
-    - 掌握 (Mastery): 技能 ≥ 90 → 获得 2D6 SAN 恢复
-    - 幸运成长: d100 > 当前幸运 → +2D10
-"""
+from __future__ import annotations
+
+from typing import Any
 
 from sagasmith_coc.random_stream import randint
 
 
+def _percentile(value: int, *, field: str) -> int:
+    result = int(value)
+    if not 0 <= result <= 100:
+        raise ValueError(f"{field} must be between 0 and 100")
+    return result
+
+
+def _die(value: int | None, sides: int, *, field: str) -> int:
+    result = randint(1, sides) if value is None else int(value)
+    if not 1 <= result <= sides:
+        raise ValueError(f"{field} must be between 1 and {sides}")
+    return result
+
+
 def resolve_skill_development(
     current_value: int,
-) -> dict:
+    *,
+    improvement_roll: int | None = None,
+    gain_roll: int | None = None,
+    mastery_san_rolls: tuple[int, int] | None = None,
+) -> dict[str, Any]:
+    """Resolve one checked skill at the end of a session or scenario.
+
+    The skill improves only when the percentile roll is greater than its
+    current value. A successful improvement adds 1D10, capped at 100. The
+    existing 7e mastery reward is emitted only when this improvement first
+    crosses 90; callers remain responsible for applying SAN against SAN max.
     """
-    技能成长判定。
 
-    COC 规则:
-        - 成长需要在技能检定中获得常规成功（标记成长）
-        - 幕间: d100 > 当前值 → +1D10
-        - 掌握 (≥ 90): 获得 2D6 SAN 恢复
-        - 成长不可使技能 > 100
-
-    参数:
-        current_value: 当前技能值 (0-100)
-
-    返回:
-        {
-            "improved": bool,           # 是否成功成长
-            "gain": int,                # 成长值 (1-10)
-            "new_value": int,           # 新技能值
-            "mastered": bool,           # 是否达到掌握 (≥90)
-            "san_recovery": int | None, # 掌握时的 SAN 恢复 (2D6)
-            "detail_lines": list[str],
-            "summary_line": str,
-        }
-    """
-    # 确定成长量
-    improvement_roll = randint(1, 100)
-    improved = improvement_roll > current_value
-
-    if not improved:
+    current = _percentile(current_value, field="current_value")
+    check = _die(improvement_roll, 100, field="improvement_roll")
+    if check <= current:
+        if gain_roll is not None or mastery_san_rolls is not None:
+            raise ValueError("gain and mastery rolls are not used when the skill does not improve")
         return {
+            "current_value": current,
+            "improvement_roll": check,
             "improved": False,
+            "gain_roll": None,
             "gain": 0,
-            "new_value": current_value,
+            "new_value": current,
             "mastered": False,
-            "san_recovery": None,
-            "detail_lines": [
-                f"【技能成长】当前 {current_value}%",
-                f"  → d100 = {improvement_roll} ≤ {current_value}，未成长",
-            ],
-            "summary_line": f"技能成长失败（{improvement_roll} ≤ {current_value}）",
+            "mastery_san_rolls": [],
+            "san_recovery": 0,
+            "summary_line": f"Skill did not improve ({check} <= {current}).",
         }
 
-    # 掷成长骰 1D10
-    gain_roll = randint(1, 10)
-    new_value = min(100, current_value + gain_roll)
-
-    # 掌握判定
-    mastered = new_value >= 90
-    san_recovery = None
+    gain = _die(gain_roll, 10, field="gain_roll")
+    new_value = min(100, current + gain)
+    mastered = current < 90 <= new_value
+    san_rolls: list[int] = []
     if mastered:
-        san_roll1 = randint(1, 6)
-        san_roll2 = randint(1, 6)
-        san_recovery = san_roll1 + san_roll2
-
-    detail_lines = [
-        f"【技能成长】当前 {current_value}%",
-        f"  → d100 = {improvement_roll} > {current_value} ✅ 成长！",
-        f"  → 1D10 = {gain_roll}，新值 = {new_value}",
-    ]
-    if mastered:
-        detail_lines.append(f"  ⭐ 技能掌握！获得 {san_recovery} SAN 恢复")
-
+        supplied = mastery_san_rolls or (None, None)
+        san_rolls = [
+            _die(supplied[0], 6, field="mastery_san_roll_1"),
+            _die(supplied[1], 6, field="mastery_san_roll_2"),
+        ]
+    elif mastery_san_rolls is not None:
+        raise ValueError("mastery SAN rolls are used only when the skill first reaches 90")
+    san_recovery = sum(san_rolls)
     return {
+        "current_value": current,
+        "improvement_roll": check,
         "improved": True,
-        "gain": gain_roll,
+        "gain_roll": gain,
+        "gain": gain,
         "new_value": new_value,
         "mastered": mastered,
+        "mastery_san_rolls": san_rolls,
         "san_recovery": san_recovery,
-        "detail_lines": detail_lines,
         "summary_line": (
-            f"技能成长: {current_value} → {new_value} (+{gain_roll})"
-            + (f" ⭐ 掌握 +{san_recovery} SAN" if mastered else "")
+            f"Skill improved {current} -> {new_value} (+{gain})."
+            + (f" Mastery restores {san_recovery} SAN." if mastered else "")
         ),
     }
 
 
 def resolve_luck_development(
     current_luck: int,
-) -> dict:
+    *,
+    improvement_roll: int | None = None,
+    gain_rolls: tuple[int, int] | None = None,
+) -> dict[str, Any]:
+    """Resolve the package's optional Luck-development procedure.
+
+    This helper preserves the existing 2D10 procedure for profiles that opt
+    into it. The MCP must never invoke it unless the active campaign settings
+    explicitly select that Luck-recovery rule.
     """
-    幸运成长判定。
 
-    COC 规则:
-        - 幕间: d100 > 当前幸运 → +2D10
-
-    参数:
-        current_luck: 当前幸运值
-
-    返回:
-        {
-            "improved": bool,
-            "gain": int,
-            "new_value": int,
-            "detail_lines": list[str],
-            "summary_line": str,
-        }
-    """
-    improvement_roll = randint(1, 100)
-    improved = improvement_roll > current_luck
-
-    if not improved:
+    current = _percentile(current_luck, field="current_luck")
+    check = _die(improvement_roll, 100, field="improvement_roll")
+    if check <= current:
+        if gain_rolls is not None:
+            raise ValueError("gain rolls are not used when Luck does not improve")
         return {
+            "current_value": current,
+            "improvement_roll": check,
             "improved": False,
+            "gain_rolls": [],
             "gain": 0,
-            "new_value": current_luck,
-            "detail_lines": [
-                f"【幸运成长】当前 {current_luck}",
-                f"  → d100 = {improvement_roll} ≤ {current_luck}，未成长",
-            ],
-            "summary_line": f"幸运未成长（{improvement_roll} ≤ {current_luck}）",
+            "new_value": current,
+            "summary_line": f"Luck did not improve ({check} <= {current}).",
         }
-
-    # 2D10
-    r1 = randint(1, 10)
-    r2 = randint(1, 10)
-    gain = r1 + r2
-    new_value = current_luck + gain
-
+    supplied = gain_rolls or (None, None)
+    rolls = [
+        _die(supplied[0], 10, field="gain_roll_1"),
+        _die(supplied[1], 10, field="gain_roll_2"),
+    ]
+    gain = sum(rolls)
+    new_value = min(100, current + gain)
     return {
+        "current_value": current,
+        "improvement_roll": check,
         "improved": True,
+        "gain_rolls": rolls,
         "gain": gain,
         "new_value": new_value,
-        "detail_lines": [
-            f"【幸运成长】当前 {current_luck}",
-            f"  → d100 = {improvement_roll} > {current_luck} ✅ 成长！",
-            f"  → 2D10 = {r1} + {r2} = {gain}，新值 = {new_value}",
-        ],
-        "summary_line": f"幸运成长: {current_luck} → {new_value} (+{gain})",
+        "summary_line": f"Luck improved {current} -> {new_value} (+{gain}).",
     }
 
 
 def mark_skill_for_development(success_level: int) -> bool:
-    """
-    判断技能检定是否可标记成长。
+    """Return whether an ordinary skill success earns its single check mark."""
 
-    COC 规则: 常规成功 (非大成功/困难/极难) 才标记
-    但简化规则: 任何成功都可以标记
-    """
     from .checks.skill import SuccessLevel
-    return success_level >= SuccessLevel.REGULAR
+
+    return int(success_level) >= int(SuccessLevel.REGULAR)

@@ -272,6 +272,170 @@ def resolve_opposed_check(
     }
 
 
+def resolve_combined_check(
+    d100_total: int,
+    traits: list[dict[str, Any]],
+    *,
+    requirement: str,
+    bonus_dice: int = 0,
+    penalty_dice: int = 0,
+    luck_spent: int = 0,
+    pushed: bool = False,
+) -> dict[str, Any]:
+    """Compare one percentile result with two or more named traits.
+
+    The Keeper must state whether success with any listed trait or every
+    listed trait is required. Luck, when used, adjusts the shared roll and
+    therefore every comparison. It must exactly buy the stated aggregate
+    requirement and can never buy a Critical success.
+    """
+
+    rolled = int(d100_total)
+    if not 1 <= rolled <= 100:
+        raise ValueError("d100_total must be between 1 and 100")
+    mode = str(requirement).strip().casefold()
+    if mode not in {"any", "all"}:
+        raise ValueError("requirement must be any or all")
+    if not 2 <= len(traits) <= 8:
+        raise ValueError("a combined check requires between 2 and 8 traits")
+    if not 0 <= int(bonus_dice) <= 2 or not 0 <= int(penalty_dice) <= 2:
+        raise ValueError("bonus_dice and penalty_dice must be between 0 and 2")
+    normalized: list[dict[str, Any]] = []
+    identities: set[tuple[str, str]] = set()
+    for raw in traits:
+        item = dict(raw)
+        name = str(item.get("name") or "").strip()
+        kind = str(item.get("kind") or "skill").strip().casefold()
+        if not name:
+            raise ValueError("every combined trait requires a name")
+        if kind not in PUSHABLE_ROLL_KINDS:
+            raise ValueError("combined traits must be skills or characteristics")
+        identity = (kind, name.casefold())
+        if identity in identities:
+            raise ValueError("combined trait names must be unique within each kind")
+        identities.add(identity)
+        normalized.append(
+            {
+                "name": name,
+                "kind": kind,
+                "threshold": int(item["threshold"]),
+                "difficulty": _difficulty(str(item.get("difficulty") or "regular")),
+            }
+        )
+
+    unadjusted_total = rolled
+
+    def component(item: dict[str, Any], total: int) -> dict[str, Any]:
+        ranges = threshold_ranges(int(item["threshold"]))
+        level = _success_level(total, ranges)
+        required = item["difficulty"]
+        return {
+            "name": item["name"],
+            "kind": item["kind"],
+            "threshold": item["threshold"],
+            "difficulty": required.name.lower(),
+            "success": level >= required,
+            "success_level": level,
+            "success_label": SUCCESS_LABELS[level],
+            "is_fumble": level == SuccessLevel.FUMBLE,
+            "development_eligible": bool(
+                item["kind"] == "skill" and level >= SuccessLevel.REGULAR
+            ),
+        }
+
+    original_components = [component(item, unadjusted_total) for item in normalized]
+    original_success = (
+        any(item["success"] for item in original_components)
+        if mode == "any"
+        else all(item["success"] for item in original_components)
+    )
+    needed_costs: list[int | None] = []
+    for item, result in zip(normalized, original_components, strict=True):
+        if result["success"]:
+            needed_costs.append(0)
+            continue
+        if pushed or result["is_fumble"] or item["difficulty"] == Difficulty.CRITICAL:
+            needed_costs.append(None)
+            continue
+        target = threshold_ranges(int(item["threshold"])).get(
+            SuccessLevel(int(item["difficulty"]))
+        )
+        needed_costs.append(None if target is None else unadjusted_total - target[1])
+    aggregate_cost: int | None = None
+    if not original_success:
+        if mode == "any":
+            candidates = [cost for cost in needed_costs if cost is not None and cost > 0]
+            aggregate_cost = min(candidates) if candidates else None
+        elif all(cost is not None for cost in needed_costs):
+            aggregate_cost = max(int(cost) for cost in needed_costs)
+    options = (
+        {"meet_requirement": aggregate_cost}
+        if aggregate_cost is not None and aggregate_cost > 0
+        else {}
+    )
+    spent = int(luck_spent)
+    if spent < 0:
+        raise ValueError("luck_spent must not be negative")
+    if spent and spent not in set(options.values()):
+        if pushed:
+            raise ValueError("Luck cannot adjust a pushed combined roll")
+        if all(item["is_fumble"] for item in original_components):
+            raise ValueError("Luck cannot adjust a fumbled combined roll")
+        raise ValueError("luck_spent must exactly purchase the combined requirement")
+    modified_total = max(1, unadjusted_total - spent)
+    components = [component(item, modified_total) for item in normalized]
+    success = (
+        any(item["success"] for item in components)
+        if mode == "any"
+        else all(item["success"] for item in components)
+    )
+    return {
+        "d100": rolled,
+        "unadjusted_total": unadjusted_total,
+        "modified_total": modified_total,
+        "requirement": mode,
+        "success": success,
+        "original_success": original_success,
+        "components": components,
+        "luck_spent": spent,
+        "luck_options": options,
+        "luck_eligible": bool(options),
+        "push_eligible": bool(not pushed and not spent and not original_success),
+        "pushed": bool(pushed),
+        "failed_pushed_roll": bool(pushed and not success),
+        "development_eligible_skills": [
+            item["name"]
+            for item in components
+            if item["development_eligible"] and item["success"]
+        ],
+    }
+
+
+def group_luck_candidates(participants: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return every participant tied for the scene's lowest current Luck."""
+
+    if not 2 <= len(participants) <= 20:
+        raise ValueError("a group Luck roll requires between 2 and 20 participants")
+    normalized = []
+    seen: set[str] = set()
+    for raw in participants:
+        actor_id = str(dict(raw).get("actor_id") or "").strip()
+        if not actor_id or actor_id in seen:
+            raise ValueError("group Luck actor ids must be present and unique")
+        seen.add(actor_id)
+        luck = int(dict(raw).get("luck"))
+        if not 0 <= luck <= 100:
+            raise ValueError("group Luck values must be between 0 and 100")
+        normalized.append({"actor_id": actor_id, "luck": luck})
+    lowest = min(item["luck"] for item in normalized)
+    return {
+        "lowest_luck": lowest,
+        "candidate_actor_ids": [
+            item["actor_id"] for item in normalized if item["luck"] == lowest
+        ],
+    }
+
+
 def get_success_label(level: int) -> str:
     """Return the stable English label for a success level."""
 
