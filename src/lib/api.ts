@@ -66,7 +66,7 @@ export class CocGatewayClient {
   private readonly timeoutMs: number;
 
   constructor(config: ClientConfig = {}) {
-    this.baseUrl = (config.baseUrl ?? import.meta.env.PUBLIC_COC_GATEWAY_BASE ?? 'http://127.0.0.1:8767').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl ?? import.meta.env.PUBLIC_COC_GATEWAY_BASE ?? 'http://127.0.0.1:8768').replace(/\/$/, '');
     this.mode = config.mode ?? publicMode();
     this.fetchImpl = config.fetchImpl ?? fetch;
     this.timeoutMs = config.timeoutMs ?? 12_000;

@@ -24,8 +24,8 @@ result. The UI refuses caller-supplied `principal_id`; MCP remains authoritative
 for authorization, dynamic exposure, random streams, revisions, idempotency, and
 atomic settlement.
 
-No gateway is implemented in this repository. Web hosting and the authenticated
-gateway belong to the separate web-application task.
+The authenticated sticky-session gateway is implemented by the sibling
+`SagaSmith-coc-mcp` repository and can serve this built UI directly.
 
 ## Run
 
@@ -37,7 +37,7 @@ npm run dev
 
 Configuration:
 
-- `PUBLIC_COC_GATEWAY_BASE` — gateway origin, default `http://127.0.0.1:8767`
+- `PUBLIC_COC_GATEWAY_BASE` — gateway origin, default `http://127.0.0.1:8768`
 - `PUBLIC_COC_UI_MODE=demo` — explicit read-only demo mode
 
 For a one-off local demo, open `/?demo=1`. Demo data is visibly marked,
