@@ -109,14 +109,10 @@ COC7E = SystemDefinition(
     id="coc7e",
     display_name="Call of Cthulhu 7th Edition",
     character_types=("investigator", "npc", "creature"),
-    campaign_defaults={
-        "ruleset": "classic",
-        "revision": "7e",
-        "locale": "zh",
-        "combat": None,
-        "chase": None,
-        "world": {},
-    },
+    # Rule identity belongs to the rule profile and live activity belongs to
+    # the authoritative MCP campaign state. The system plugin must not seed
+    # either authority through generic campaign settings.
+    campaign_defaults={},
     validate_sheet=validate_investigator_sheet,
 )
 

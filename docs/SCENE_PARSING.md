@@ -82,7 +82,7 @@ Each scene should expose:
 - `npc`
 - `creature`
 - `handout`
-- `read_aloud`
+- `blockquote`
 - `keeper_note`
 - `timeline`
 - `hazard`
@@ -124,10 +124,12 @@ the CoC engine.
 
 Every scene, subsection, clue, and asset needs a visibility value:
 
-- `keeper`
-- `player`
-- `read_aloud`
-- `discovered`
+- `restricted`
+- `group`
+- `public`
+
+Keeper, party/player, read-aloud, and discovery semantics are system-owned
+profile data; they must not be encoded as additional Core visibility values.
 
 Handout exports must never include adjacent Keeper notes. Search results may
 locate Keeper-only material, but player-facing rendering must filter it.

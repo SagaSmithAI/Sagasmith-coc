@@ -28,6 +28,10 @@ def test_coc_skill_cli_vertical_slice(tmp_path: Path, monkeypatch, capsys) -> No
         "classic",
     )
     assert code == 0
+    assert started["data"]["campaign"]["settings"] == {}
+    assert started["data"]["campaign"]["state"] == {}
+    assert started["data"]["rule_profile"]["edition"] == "7e"
+    assert started["data"]["rule_profile"]["options"] == {"ruleset": "classic"}
     campaign_id = started["data"]["campaign"]["id"]
 
     code, investigator = _call(
