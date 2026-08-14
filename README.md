@@ -44,7 +44,7 @@ sagasmith-coc --help
 sagasmith-coc database upgrade --json
 ```
 
-`database upgrade` 当前包含 Snapshot schema v8 的一次性迁移：完整、checksum 有效的 schema-v7 JSON Snapshot 会转换为独立 `zlib-1` 记录并删除旧 `payload` 列。执行前必须停止写入并创建一致性数据库备份；v3–v6 Snapshot 需先由匹配的历史运行时物化到 v7。该协议没有 downgrade，回滚需恢复升级前数据库以及匹配的 Core/CoC 版本。
+`database upgrade` 要求数据库符合当前 Snapshot schema v8：每个完整状态文档都以独立、checksum 有效的 `zlib-1` 记录保存。执行前必须停止写入并创建一致性数据库备份。当前格式没有 downgrade；回滚需恢复成套的数据库以及匹配的 Core/CoC 版本。
 
 示例：
 
