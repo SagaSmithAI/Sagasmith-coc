@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from sagasmith_coc.random_stream import randint
+from sagasmith_coc.system import validate_investigator_sheet
+
+from .sheet import development_skill_eligible, exact_sheet_value
 
 
 def _percentile(value: int, *, field: str) -> int:
@@ -135,3 +138,102 @@ def mark_skill_for_development(success_level: int) -> bool:
     from .checks.skill import SuccessLevel
 
     return int(success_level) >= int(SuccessLevel.REGULAR)
+
+
+def development_query(sheet: dict[str, Any]) -> list[dict[str, Any]]:
+    """Describe every checked skill without mutating the investigator sheet."""
+
+    value = validate_investigator_sheet(sheet)
+    checked = [
+        str(item).strip()
+        for item in list(dict(value.get("development") or {}).get("checked_skills") or [])
+        if str(item).strip()
+    ]
+    if len({name.casefold() for name in checked}) != len(checked):
+        raise ValueError("checked skill names must be unique")
+    skills = dict(value.get("skills") or {})
+    actual_names = {str(name).casefold(): str(name) for name in skills}
+    pending = []
+    for skill_name in checked:
+        canonical_name = actual_names.get(skill_name.casefold())
+        if canonical_name is None:
+            raise ValueError(f"checked skill is missing from actor sheet: {skill_name!r}")
+        eligible = development_skill_eligible(canonical_name)
+        pending.append(
+            {
+                "skill_name": canonical_name,
+                "current_value": exact_sheet_value(skills, canonical_name, "skill"),
+                "eligible": eligible,
+                "reason": (
+                    None
+                    if eligible
+                    else "Cthulhu Mythos does not use ordinary development checks"
+                ),
+            }
+        )
+    return pending
+
+
+def settle_development(
+    sheet: dict[str, Any],
+    *,
+    source: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve and clear all checked skills under the active random context.
+
+    Random authority remains with the caller: an MCP campaign stream can be
+    installed with ``use_random_stream`` before this pure sheet transition is
+    called.  The returned receipt contains only system-mechanical facts.
+    """
+
+    source_value = " ".join(str(source or "").split()).strip()
+    if not source_value or len(source_value) > 500:
+        raise ValueError("source must contain 1 to 500 characters")
+    value = validate_investigator_sheet(sheet)
+    pending = development_query(value)
+    if not pending:
+        raise ValueError("actor has no checked skills awaiting development")
+    skills = dict(value.get("skills") or {})
+    development = dict(value.get("development") or {})
+    results: list[dict[str, Any]] = []
+    san_before = int(value["san"])
+    san_current = san_before
+    for item in pending:
+        skill_name = str(item["skill_name"])
+        current = int(item["current_value"])
+        if not bool(item["eligible"]):
+            results.append(dict(item))
+            continue
+        result = resolve_skill_development(current)
+        skills[skill_name] = int(result["new_value"])
+        san_gain = min(
+            int(result["san_recovery"]),
+            max(0, int(value["san_max"]) - san_current),
+        )
+        san_current += san_gain
+        results.append(
+            {
+                "skill_name": skill_name,
+                "eligible": True,
+                **result,
+                "san_applied": san_gain,
+            }
+        )
+    receipt = {
+        "sequence": len(list(development.get("history") or [])) + 1,
+        "source": source_value,
+        "results": results,
+        "san_before": san_before,
+        "san_after": san_current,
+    }
+    development["checked_skills"] = []
+    development["history"] = [*list(development.get("history") or [])[-99:], receipt]
+    next_sheet = validate_investigator_sheet(
+        {
+            **value,
+            "skills": skills,
+            "san": san_current,
+            "development": development,
+        }
+    )
+    return next_sheet, receipt
