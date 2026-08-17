@@ -178,6 +178,7 @@ def settle_development(
     sheet: dict[str, Any],
     *,
     source: str,
+    actor_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve and clear all checked skills under the active random context.
 
@@ -226,6 +227,8 @@ def settle_development(
         "san_before": san_before,
         "san_after": san_current,
     }
+    if str(actor_id or "").strip():
+        receipt["actor_id"] = str(actor_id).strip()
     development["checked_skills"] = []
     development["history"] = [*list(development.get("history") or [])[-99:], receipt]
     next_sheet = validate_investigator_sheet(
