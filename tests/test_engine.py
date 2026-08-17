@@ -1,7 +1,11 @@
 import pytest
 
 from sagasmith_coc.engine.checks.combat import resolve_melee_attack
-from sagasmith_coc.engine.checks.sanity import calculate_sanity_max, resolve_sanity_loss
+from sagasmith_coc.engine.checks.sanity import (
+    calculate_sanity_max,
+    resolve_sanity_check,
+    resolve_sanity_loss,
+)
 from sagasmith_coc.engine.checks.skill import (
     SuccessLevel,
     group_luck_candidates,
@@ -50,6 +54,33 @@ def test_investigator_and_core_mechanics() -> None:
     damage = roll_dice_expression("1D6+2")
     assert len(damage["rolls"]) == 1
     assert damage["total"] == damage["rolls"][0] + 2
+
+
+def test_complete_sanity_check_uses_the_caller_campaign_stream() -> None:
+    sheet = validate_investigator_sheet(
+        {"characteristics": {"pow": 70, "int": 60}, "san": 70}
+    )
+    state = {"random_stream": initial_random_stream("san-check")}
+    stream = CampaignRandomStream.from_campaign_state(
+        "campaign",
+        state,
+        operation="coc_sanity_check",
+        idempotency_key="san-1",
+    )
+    with use_random_stream(stream):
+        result = resolve_sanity_check(
+            sheet,
+            success_loss="1D3",
+            failure_loss="1D10",
+            source="Witness the entity",
+            context="real_time",
+            investigator_name="Ada",
+            event_id="san-1",
+        )
+    assert result["event"]["idempotency_key"] == "san-1"
+    assert result["sheet"]["sanity_loss_events"][-1] == result["event"]
+    assert result["san"] <= 70
+    assert stream.draw_count >= 3
 
 
 def test_opposed_and_melee_defense_are_fully_resolved() -> None:

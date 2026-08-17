@@ -10,8 +10,11 @@ CoC 7e 理智系统 (Sanity) — 理智损失、临时/不定期疯狂、狂乱�
 """
 
 from enum import IntEnum
+from typing import Any
 
+from sagasmith_coc.engine.dice.rolls import roll_d100, roll_dice_expression
 from sagasmith_coc.random_stream import randint
+from sagasmith_coc.system import validate_investigator_sheet
 
 
 class InsanityType(IntEnum):
@@ -205,3 +208,99 @@ def is_temporary_insanity(san_loss: int) -> bool:
 def calculate_daily_limit(current_san: int) -> int:
     """计算每日理智损失上限"""
     return max(1, current_san // 5)
+
+
+def resolve_sanity_check(
+    sheet: dict[str, Any],
+    *,
+    success_loss: str,
+    failure_loss: str,
+    source: str,
+    context: str,
+    investigator_name: str = "",
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    """Roll and apply one complete source-explicit SAN encounter.
+
+    The caller owns random-stream persistence.  Installing a campaign stream
+    with ``use_random_stream`` makes every roll in this transition auditable
+    without moving stream authority into the system package.
+    """
+
+    source_value = " ".join(str(source or "").split()).strip()
+    if not source_value or len(source_value) > 500:
+        raise ValueError("source must contain 1 to 500 characters")
+    if context not in {"real_time", "summary"}:
+        raise ValueError("context must be real_time or summary")
+    formulas = {
+        "success": str(success_loss or "").strip(),
+        "failure": str(failure_loss or "").strip(),
+    }
+    if not all(formulas.values()) or any(len(value) > 100 for value in formulas.values()):
+        raise ValueError("success_loss and failure_loss must contain 1 to 100 characters")
+    value = validate_investigator_sheet(sheet)
+    current_san = int(value["san"])
+    if current_san <= 0:
+        raise ValueError("an actor with zero SAN cannot make another SAN check")
+
+    sanity_roll = roll_d100()
+    succeeded = int(sanity_roll["total"]) <= current_san
+    selected_formula = formulas["success" if succeeded else "failure"]
+    loss_roll = roll_dice_expression(selected_formula)
+    if int(loss_roll["total"]) < 0:
+        raise ValueError("SAN loss expressions must not produce a negative result")
+    int_roll = None
+    int_success = None
+    if int(loss_roll["total"]) >= 5:
+        int_roll = roll_d100()
+        int_success = int(int_roll["total"]) <= int(value["characteristics"]["int"])
+    outcome = resolve_sanity_loss(
+        current_san=current_san,
+        san_max=int(value["san_max"]),
+        loss_amount=int(loss_roll["total"]),
+        daily_loss_accumulated=int(value.get("san_daily_loss", 0)),
+        daily_limit=int(value.get("san_daily_limit", max(1, current_san // 5))),
+        cthulhu_mythos_value=int(value.get("cthulhu_mythos", 0)),
+        is_mythos_hardened=bool(value.get("mythos_hardened", False)),
+        pulp_rules=str(value.get("ruleset") or "classic") == "pulp",
+        investigator_name=investigator_name,
+        source=source_value,
+        int_check_success=int_success,
+    )
+    bout = None
+    if outcome["bout_of_madness"]:
+        bout = {
+            **roll_bout_of_madness(real_time=context == "real_time"),
+            "duration": roll_dice_expression("1D10"),
+            "duration_unit": "rounds" if context == "real_time" else "hours",
+        }
+    conditions = dict(value.get("conditions") or {})
+    conditions["temporary_insanity"] = bool(outcome["temp_insanity"])
+    conditions["indefinite_insanity"] = bool(outcome["indef_insanity"])
+    conditions["permanent_insanity"] = outcome["insanity_type"] == "permanent"
+    event = {
+        "source": source_value,
+        "context": context,
+        "sanity_roll": sanity_roll,
+        "succeeded": succeeded,
+        "loss_formula": selected_formula,
+        "loss_roll": loss_roll,
+        "int_roll": int_roll,
+        "outcome": outcome,
+        "bout": bout,
+    }
+    if str(event_id or "").strip():
+        event["idempotency_key"] = str(event_id).strip()
+    value["conditions"] = conditions
+    value["san"] = int(outcome["new_san"])
+    value["san_daily_loss"] = int(outcome["daily_loss_accumulated"])
+    value["sanity_loss_events"] = [
+        *list(value.get("sanity_loss_events") or [])[-499:],
+        event,
+    ]
+    return {
+        "sheet": validate_investigator_sheet(value),
+        "event": event,
+        "san": int(outcome["new_san"]),
+        "conditions": conditions,
+    }
