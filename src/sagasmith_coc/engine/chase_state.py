@@ -5,7 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .checks.chase import calc_chase_actions
+from .checks.chase import calc_chase_actions, resolve_chase_speed_check
+from .checks.skill import resolve_skill_check
+from .dice.rolls import roll_d100
 
 CHASE_SCHEMA = "sagasmith.coc7e-chase.v1"
 
@@ -281,3 +283,153 @@ def end_chase(state: dict[str, Any], *, outcome: str, source: str) -> dict[str, 
         {"type": "chase_ended", "outcome": outcome_value, "source": source_value}
     )
     return value
+
+
+def start_chase_with_speed_checks(
+    participants: list[dict[str, Any]],
+    *,
+    source: str,
+    route: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Roll every prepared speed check and build the canonical chase state."""
+
+    if len(participants) < 2:
+        raise ValueError("chase requires at least two participants")
+    prepared = [dict(item) for item in participants]
+    base_slowest = min(int(item.get("base_mov", 0)) for item in prepared)
+    if base_slowest < 1:
+        raise ValueError("prepared chase participants require positive base_mov")
+    speed_checks: dict[str, dict[str, Any]] = {}
+    state_participants: list[dict[str, Any]] = []
+    for item in prepared:
+        actor_id = str(item.get("actor_id") or "").strip()
+        skill_name = str(item.get("speed_skill_name") or "").strip()
+        if not actor_id or not skill_name:
+            raise ValueError("prepared chase participants require actor_id and speed_skill_name")
+        roll = roll_d100()
+        outcome = resolve_chase_speed_check(
+            int(roll["total"]),
+            int(item["speed_skill"]),
+            int(item["base_mov"]),
+            base_slowest,
+            participant_name=str(item.get("name") or ""),
+        )
+        speed_checks[actor_id] = {
+            "skill_name": skill_name,
+            "skill_value": int(item["speed_skill"]),
+            "roll": roll,
+            "outcome": outcome,
+        }
+        state_participants.append(
+            {
+                "actor_id": actor_id,
+                "name": item.get("name"),
+                "role": item.get("role"),
+                "participant_kind": item.get("participant_kind", "person"),
+                "vehicle": deepcopy(item.get("vehicle")),
+                "effective_mov": int(outcome["new_mov"]),
+                "dex": int(item["dex"]),
+                "position": int(item.get("position", 0)),
+            }
+        )
+    chase = start_chase(state_participants, source=source, route=route)
+    for actor_id, check in speed_checks.items():
+        check["outcome"]["actions"] = chase["participants"][actor_id]["action_points"]
+    return {"chase": chase, "speed_checks": speed_checks}
+
+
+def resolve_chase_turn_action(
+    state: dict[str, Any],
+    actor_id: str,
+    *,
+    action: str,
+    source: str = "",
+    cost: int = 1,
+    position_change: int = 1,
+    action_type: str = "check",
+    skill_name: str = "",
+    skill_value: int | None = None,
+    actor_name: str = "",
+    difficulty: str = "regular",
+    bonus_dice: int = 0,
+    penalty_dice: int = 0,
+    success_position_change: int = 0,
+    failure_position_change: int = 0,
+) -> dict[str, Any]:
+    """Resolve one complete chase action from explicit mechanical inputs."""
+
+    if actor_id != str(state.get("current_actor_id") or ""):
+        raise ValueError("only the current chase actor may act")
+    if action == "end_turn":
+        return {"chase": advance_chase_turn(state), "resolution": None}
+    if action == "move":
+        return {
+            "chase": take_chase_action(
+                state,
+                actor_id,
+                action_type="move",
+                cost=cost,
+                position_change=position_change,
+                source=source,
+            ),
+            "resolution": None,
+        }
+    if action not in {"check", "speed_check"}:
+        raise ValueError("chase action must be move, check, speed_check, or end_turn")
+    name = str(skill_name or "").strip()
+    if not name or skill_value is None:
+        raise ValueError("chase checks require skill_name and skill_value")
+    roll = roll_d100(bonus_dice=bonus_dice, penalty_dice=penalty_dice)
+    if action == "speed_check":
+        outcome = resolve_chase_speed_check(
+            int(roll["total"]),
+            int(skill_value),
+            int(state["participants"][actor_id]["effective_mov"]),
+            int(state["slowest_mov"]),
+            difficulty=difficulty,
+            participant_name=actor_name,
+        )
+        chase = take_chase_action(
+            state,
+            actor_id,
+            action_type="speed_check",
+            cost=cost,
+            source=source,
+        )
+        chase = set_effective_mov(
+            chase,
+            actor_id,
+            int(outcome["new_mov"]),
+            source=source,
+        )
+    else:
+        outcome = resolve_skill_check(
+            int(roll["total"]),
+            int(skill_value),
+            difficulty=difficulty,
+            bonus_dice=bonus_dice,
+            penalty_dice=penalty_dice,
+            skill_name=name,
+            investigator_name=actor_name,
+        )
+        chase = take_chase_action(
+            state,
+            actor_id,
+            action_type=action_type,
+            cost=cost,
+            position_change=(
+                int(success_position_change)
+                if outcome["success"]
+                else int(failure_position_change)
+            ),
+            source=source,
+        )
+    return {
+        "chase": chase,
+        "resolution": {
+            "skill_name": name,
+            "skill_value": int(skill_value),
+            "roll": roll,
+            "outcome": outcome,
+        },
+    }

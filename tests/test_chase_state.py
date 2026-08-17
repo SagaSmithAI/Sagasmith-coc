@@ -6,11 +6,18 @@ from sagasmith_coc.engine.chase_state import (
     advance_chase_turn,
     chase_distance,
     end_chase,
+    resolve_chase_turn_action,
     set_effective_mov,
     start_chase,
+    start_chase_with_speed_checks,
     take_chase_action,
 )
 from sagasmith_coc.engine.checks.chase import calc_chase_actions, resolve_chase_speed_check
+from sagasmith_coc.random_stream import (
+    CampaignRandomStream,
+    initial_random_stream,
+    use_random_stream,
+)
 
 
 def participants() -> list[dict]:
@@ -126,3 +133,48 @@ def test_vehicle_chase_preserves_source_bound_vehicle_card() -> None:
         "name": "Sedan",
         "build": 5,
     }
+
+
+def test_high_level_chase_transitions_use_the_caller_random_stream() -> None:
+    prepared = [
+        {
+            **item,
+            "base_mov": item["effective_mov"],
+            "speed_skill_name": "CON",
+            "speed_skill": 60,
+        }
+        for item in participants()
+    ]
+    random_state = {"random_stream": initial_random_stream("chase-high-level")}
+    stream = CampaignRandomStream.from_campaign_state(
+        "campaign",
+        random_state,
+        operation="chase_start",
+        idempotency_key="start",
+    )
+    with use_random_stream(stream):
+        started = start_chase_with_speed_checks(prepared, source="Source-backed pursuit.")
+    assert set(started["speed_checks"]) == {"investigator", "cultist"}
+    assert stream.draw_count == 4
+
+    action_stream = CampaignRandomStream.from_campaign_state(
+        "campaign",
+        random_state,
+        operation="chase_action.check",
+        idempotency_key="check",
+    )
+    current = started["chase"]["current_actor_id"]
+    with use_random_stream(action_stream):
+        checked = resolve_chase_turn_action(
+            started["chase"],
+            current,
+            action="check",
+            source="Cross the obstacle.",
+            skill_name="Climb",
+            skill_value=55,
+            actor_name="Investigator",
+            success_position_change=1,
+            failure_position_change=-1,
+        )
+    assert checked["resolution"]["skill_name"] == "Climb"
+    assert action_stream.draw_count == 2
