@@ -1,6 +1,6 @@
 # SagaSmith CoC
 
-[中文](README.md) · [English](README-en.md) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md)
+[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [托管服务](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 **SagaSmithAI 的 Call of Cthulhu 7e 系统运行时。** 本仓库在 `sagasmith-core` 上注册 `coc7e` 插件，提供调查员、d100 检定、SAN、战斗、追逐和调查模组解析。
 
