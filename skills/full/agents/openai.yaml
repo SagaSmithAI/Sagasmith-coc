@@ -1,0 +1,7 @@
+interface:
+  display_name: "SagaSmith CoC 7e Suite"
+  short_description: "Run source-bound CoC 7e campaigns through MCP"
+  default_prompt: "Use $sagasmith-coc-suite to resume and run my Call of Cthulhu 7e campaign through the SagaSmith MCP."
+
+policy:
+  allow_implicit_invocation: true

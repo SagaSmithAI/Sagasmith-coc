@@ -1,0 +1,56 @@
+---
+import '../styles/global.css';
+export interface Props { title: string; section?: string; }
+const { title, section = 'KEEPER WORKBENCH' } = Astro.props;
+const path = Astro.url.pathname;
+const active = (prefix: string) => prefix === '/' ? path === '/' : path.startsWith(prefix);
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111714" />
+    <meta name="description" content="SagaSmith CoC Keeper Workbench — investigation, Content Pack, encounters and authoritative continuity." />
+    <link rel="icon" href="/favicon.svg" />
+    <title>{title} · SagaSmith CoC</title>
+  </head>
+  <body>
+    <div class="app-shell" data-shell>
+      <aside class="sidebar">
+        <a class="brand" href="/"><span class="brand-mark">S</span><span><strong>SagaSmith CoC</strong><small>KEEPER WORKBENCH</small></span></a>
+        <div class="side-label">TABLE</div>
+        <nav aria-label="主要导航">
+          <a href="/" aria-current={active('/') ? 'page' : undefined}><span>⌁</span>调查现场</a>
+          <a href="/campaigns" aria-current={active('/campaigns') ? 'page' : undefined}><span>◇</span>战役档案</a>
+        </nav>
+        <div class="side-label">RUNTIME SURFACES</div>
+        <nav>
+          <a href="/campaigns"><span>◉</span>调查与疯狂</a>
+          <a href="/campaigns"><span>▦</span>Content Pack</a>
+          <a href="/campaigns"><span>⇄</span>追逐与战斗</a>
+          <a href="/campaigns"><span>⌘</span>分支与恢复</a>
+        </nav>
+        <div class="sidebar-foot"><header><span>STATE OWNER</span><i></i></header><strong>SagaSmith CoC MCP</strong><p>UI 通过认证 sticky-session 网关观察并调用原生工具。</p></div>
+      </aside>
+      <div class="workspace">
+        <header class="topbar"><div class="topbar-left"><button type="button" data-menu aria-label="打开导航">☰</button><div><span>{section}</span><strong>{title}</strong></div></div><div class="topbar-right"><span class="runtime-badge" data-runtime><i></i><b>DETECTING RUNTIME</b></span><span class="version-badge">COC7E / SCHEMA 2</span></div></header>
+        <main><slot /></main>
+      </div>
+    </div>
+    <script>
+      const shell = document.querySelector('[data-shell]');
+      document.querySelector('[data-menu]')?.addEventListener('click', () => shell?.classList.toggle('menu-open'));
+      document.querySelectorAll('.sidebar a').forEach((link) => link.addEventListener('click', () => shell?.classList.remove('menu-open')));
+      window.addEventListener('sagasmith:runtime', (event) => {
+        const badge = document.querySelector('[data-runtime]');
+        if (!badge) return;
+        const detail = (event as CustomEvent).detail || {};
+        badge.classList.toggle('connected', detail.connected === true);
+        badge.classList.toggle('disconnected', detail.connected === false);
+        const text = badge.querySelector('b');
+        if (text) text.textContent = detail.mode === 'demo' ? 'DEMO / READ ONLY' : detail.connected ? `MCP GATEWAY · ${detail.version || 'READY'}` : 'RUNTIME OFFLINE';
+      });
+    </script>
+  </body>
+</html>

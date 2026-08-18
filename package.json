@@ -1,0 +1,12 @@
+{
+  "name": "sagasmith-coc-workspace",
+  "private": true,
+  "workspaces": [
+    "apps/ui"
+  ],
+  "scripts": {
+    "build:ui": "npm --workspace sagasmith-coc-ui run build",
+    "check:ui": "npm --workspace sagasmith-coc-ui run check",
+    "test:ui": "npm --workspace sagasmith-coc-ui run test"
+  }
+}

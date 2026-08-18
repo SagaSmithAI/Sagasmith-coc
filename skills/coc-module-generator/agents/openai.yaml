@@ -1,0 +1,7 @@
+interface:
+  display_name: "CoC Module Generator"
+  short_description: "Build reviewed CoC scenarios and rules Packs"
+  default_prompt: "Use $coc-module-generator to build a reviewed Call of Cthulhu 7e Pack from my source."
+
+policy:
+  allow_implicit_invocation: true
