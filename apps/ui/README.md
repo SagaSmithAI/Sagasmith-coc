@@ -27,7 +27,7 @@ for authorization, dynamic exposure, random streams, revisions, idempotency, and
 atomic settlement.
 
 The authenticated sticky-session gateway is implemented by the sibling
-`SagaSmith-coc-mcp` repository and can serve this built UI directly.
+`packages/mcp` directory and can serve this built UI directly.
 
 ## Run
 

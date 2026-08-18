@@ -23,11 +23,11 @@ Install into one Python 3.11+ environment:
 ~~~powershell
 pip install -e "..\sagasmith-core[documents]"
 pip install -e ..\sagasmith-coc
-pip install -e ..\SagaSmith-coc-mcp
+pip install -e packages/mcp
 ~~~
 
 Configure and run sagasmith-coc-mcp, then expose full/ and
-SagaSmith-module-gen-skills as Skill roots. The Host must refresh native schemas
+Expose the repository-local `skills/coc-module-generator` as the authoring Skill root. The Host must refresh native schemas
 after tools/list_changed; a Host without dynamic native tool support cannot run
 Full Runtime.
 

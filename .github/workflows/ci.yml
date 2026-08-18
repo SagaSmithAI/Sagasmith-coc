@@ -1,20 +1,75 @@
 name: CI
+
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  python:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sagasmith-coc
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: sagasmith-coc
       - uses: actions/checkout@v4
         with:
           repository: SagaSmithAI/sagasmith-core
-          path: deps/sagasmith-core
+          path: sagasmith-core
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --all-packages --all-extras
+      - run: uv run --no-sync ruff check packages/domain packages/mcp
+      - run: uv run --no-sync pytest packages/domain/tests
+      - run: uv run --no-sync pytest packages/mcp/tests
+
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: pip
-      - run: python -m pip install -e 'deps/sagasmith-core[dev]' -e '.[dev]'
-      - run: ruff check .
-      - run: pytest
+          python-version: "3.12"
+      - name: Validate CoC Skill documents
+        shell: python
+        run: |
+          import py_compile
+          from pathlib import Path
+
+          skills = list(Path("skills").rglob("SKILL.md"))
+          if not skills:
+              raise SystemExit("no SKILL.md files found")
+          for path in skills:
+              text = path.read_text(encoding="utf-8-sig")
+              if text.startswith("---\n"):
+                  frontmatter = text.split("---", 2)[1]
+                  for key in ("name:", "description:"):
+                      if key not in frontmatter:
+                          raise SystemExit(f"{path}: missing {key[:-1]}")
+              elif not text.lstrip().startswith("#"):
+                  raise SystemExit(f"{path}: expected frontmatter or heading")
+          for path in Path("skills").rglob("*.py"):
+              py_compile.compile(str(path), doraise=True)
+      - name: Validate CoC Pack authoring Skill
+        run: >-
+          python skills/coc-module-generator/scripts/validate_skill.py
+          skills/coc-module-generator
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build:ui

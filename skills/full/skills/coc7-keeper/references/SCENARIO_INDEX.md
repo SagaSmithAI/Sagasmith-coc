@@ -14,7 +14,7 @@ and repeated draft repair.
 Every finalized CoC Module Pack uses system coc7e, content-package schema 2,
 7e compatibility, six evidenced play-profile sections, seven exact catalog
 arrays, dossiers/endings arrays, and explicit Agent finalization. Use
-sagasmith-modulegen for the full contract.
+coc-module-generator for the full contract.
 
 ## Mechanical first-pass review
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def _workspace_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[4]
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ class McpConfig:
                 if value.strip()
             )
             if raw_module_roots is not None
-            else (root / "test_pdfs",)
+            else (root.parent / "test_pdfs",)
         )
         return cls(
             home=Path(os.environ.get("SAGASMITH_COC_MCP_HOME", root / ".sagasmith-coc-mcp"))
@@ -43,13 +43,14 @@ class McpConfig:
             .resolve(),
             database_url=os.environ.get("SAGASMITH_COC_DATABASE_URL"),
             coc_skills_dir=Path(
-                os.environ.get("SAGASMITH_COC_SKILLS_DIR", root / "SagaSmith-coc-skills")
+                os.environ.get("SAGASMITH_COC_SKILLS_DIR", root / "skills")
             )
             .expanduser()
             .resolve(),
             modulegen_skills_dir=Path(
                 os.environ.get(
-                    "SAGASMITH_MODULEGEN_SKILLS_DIR", root / "SagaSmith-module-gen-skills"
+                    "SAGASMITH_MODULEGEN_SKILLS_DIR",
+                    root / "skills" / "coc-module-generator",
                 )
             )
             .expanduser()

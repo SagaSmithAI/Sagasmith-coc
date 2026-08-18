@@ -16,7 +16,7 @@ flowchart LR
     B --> D[(Campaign data · branches · retrieval)]
 ```
 
-The independent [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc-mcp) now connects MCP-owned storage, Lobby/Play/Combat session exposure, scenario scene indexes, snapshots, branch-aware memory, actor-scoped knowledge authorization, and rules resolution. This repository remains the pure CoC runtime and JSON CLI; Agent integration and persistence belong to the MCP repository.
+The independently packaged [SagaSmith-coc-mcp](../mcp) connects MCP-owned storage, Lobby/Play/Combat session exposure, scenario scene indexes, snapshots, branch-aware memory, actor-scoped knowledge authorization, and rules resolution. The Domain package remains the pure CoC runtime and JSON CLI; Agent integration and persistence belong to the MCP package.
 
 ## Implemented capabilities
 

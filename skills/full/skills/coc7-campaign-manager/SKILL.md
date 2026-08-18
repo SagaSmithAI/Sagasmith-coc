@@ -26,7 +26,7 @@ workspace memory, a local CLI, prose summaries, or direct database writes.
 | Phase and access | game_phase, campaign_change | ../../references/mcp-contract.md |
 | Characters | character_query, character_change | ../coc7-keeper/references/INVESTIGATOR_CREATION.md |
 | Inventory and money | inventory_change, wallet_change | references/CAMPAIGN_MANAGER_DEEP_REFERENCE.md |
-| Module draft/Pack | module_draft, content_pack, module_query | ../coc7-keeper/references/SCENARIO_INDEX.md; sagasmith-modulegen |
+| Module draft/Pack | module_draft, content_pack, module_query | ../coc7-keeper/references/SCENARIO_INDEX.md; coc-module-generator |
 | Rules draft/Pack | rulebook_draft, content_pack, rule_query | ../../references/mcp-contract.md |
 | Scene progress | module_query, module_change | ../coc7-keeper/references/SCENARIO_INDEX.md |
 | Development | development_query, development_settle, long_term_change | ../coc7-keeper/references/INVESTIGATOR_CREATION.md |
@@ -81,7 +81,7 @@ separate authorized writes and record the realized exchange in continuity.
 - Use module_draft only in Lobby. Start from one managed source, review exact
   evidence, apply source/content/statblock/asset/actor/package edits, and
   explicitly finalize the current revision.
-- Use the sagasmith-modulegen Skill for the current coc7e schema: scenario,
+- Use the coc-module-generator Skill for the current coc7e schema: scenario,
   campaign, solo_adventure, or handout_pack; all six CoC play-profile sections;
   exact CoC catalogs; reachable endings where required.
 - Finalized archives are immutable and remain local for commercial/private

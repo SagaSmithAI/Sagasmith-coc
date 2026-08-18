@@ -22,11 +22,11 @@ Full Runtime 不会在 MCP 不可用时静默退回 CLI 或 portable.py。
 ~~~powershell
 pip install -e "..\sagasmith-core[documents]"
 pip install -e ..\sagasmith-coc
-pip install -e ..\SagaSmith-coc-mcp
+pip install -e packages/mcp
 ~~~
 
 配置并启动 sagasmith-coc-mcp，再把 full/skills 和
-SagaSmith-module-gen-skills 作为 Skill 根目录提供给 Host。Host 必须支持
+把仓内 `skills/coc-module-generator` 作为生成 Skill 根目录提供给 Host。Host 必须支持
 tools/list_changed 后刷新原生 schema；不支持动态工具列表的 Host 不能运行
 Full Runtime。
 

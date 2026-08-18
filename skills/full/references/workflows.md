@@ -107,7 +107,7 @@ mcp-contract.md for phase and authorization details.
 
 ## Module Pack authoring/install
 
-1. Stay in Lobby and load sagasmith-modulegen.
+1. Stay in Lobby and load coc-module-generator.
 2. module_draft start one managed source.
 3. Review inspection and module_draft evidence.
 4. Apply narrow evidence-backed edits with current draft revisions.

@@ -36,7 +36,7 @@ sagasmith_coc MCP server. A host may prefix raw native tool names.
 - skills/coc7-campaign-manager: campaign, investigator, access, Pack, continuity,
   development, branch, snapshot, restore, and audit lifecycle.
 
-Module construction uses the separately installed sagasmith-modulegen Skill
+Module construction uses the repository-local coc-module-generator Skill
 through this MCP's module_draft and content_pack tools.
 
 ## One authority per concern

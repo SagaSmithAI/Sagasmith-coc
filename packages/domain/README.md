@@ -16,7 +16,7 @@ flowchart LR
     B --> D[(Campaign data · branches · retrieval)]
 ```
 
-独立的 [SagaSmith-coc-mcp](https://github.com/SagaSmithAI/SagaSmith-coc-mcp) 已接通 MCP-owned 存储、Lobby/Play/Combat session exposure、模组 scene index、Snapshot、分支记忆、角色级知识授权与规则判定。这个仓库继续专注纯 CoC 规则运行时和 JSON CLI；Agent 集成与持久化边界由 MCP 仓库负责。
+仓内独立包 [SagaSmith-coc-mcp](../mcp) 已接通 MCP-owned 存储、Lobby/Play/Combat session exposure、模组 scene index、Snapshot、分支记忆、角色级知识授权与规则判定。Domain 包继续专注纯 CoC 规则运行时和 JSON CLI；Agent 集成与持久化边界由 MCP 包负责。
 
 ## 已实现能力
 
