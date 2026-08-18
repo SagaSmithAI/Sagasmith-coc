@@ -1,0 +1,7 @@
+interface:
+  display_name: "SagaSmith CoC Keeper"
+  short_description: "Run CoC investigations with authoritative MCP state"
+  default_prompt: "Use $coc7-keeper to run the current Call of Cthulhu scene with source-bound checks and audience-safe settlement."
+
+policy:
+  allow_implicit_invocation: true

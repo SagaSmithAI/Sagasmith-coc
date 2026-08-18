@@ -1,0 +1,7 @@
+interface:
+  display_name: "SagaSmith CoC Campaign Manager"
+  short_description: "Manage persistent CoC campaigns through SagaSmith MCP"
+  default_prompt: "Use $coc7-campaign-manager to inspect and maintain my Call of Cthulhu campaign with revision-safe MCP operations."
+
+policy:
+  allow_implicit_invocation: true
