@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [托管服务](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
+> 当前 Skill 源码位于 `sagasmith-coc/skills`；原独立 Skills 与通用 Module Generator 仓库已归档。
+
 面向 SagaSmith Call of Cthulhu 7e 的 Agent Skills。Full Runtime 使用
 sagasmith-coc-mcp 的原生动态工具，覆盖调查、线索、Luck/Push、SAN、伤害、
 战斗、追逐、成长、Content Pack、连续性、角色知识、分支与 Snapshot。
@@ -37,7 +39,7 @@ Full Runtime。
 - MCP：权威状态、授权、随机流、修订、幂等、结算和动态暴露。
 - Agent/Skills：来源解释、感知/理解/受众、线索含义、NPC 决策、叙事和 Pack 审阅。
 
-商业规则书和模组不随本仓库分发。用户私有 PDF、提取文本、页面渲染与 Pack
+商业规则书和模组不随本项目分发。用户私有 PDF、提取文本、页面渲染与 Pack
 默认只保存在本地。
 
 ## 验证

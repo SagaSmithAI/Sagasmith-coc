@@ -1,5 +1,9 @@
 # SagaSmith Call of Cthulhu
 
+[Domain](packages/domain/README.md) · [MCP](packages/mcp/README.md) ·
+[Skills](skills/README.md) · [Workbench](apps/ui/README.md) ·
+[Platform](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md)
+
 SagaSmith CoC is the vertical monorepo for Call of Cthulhu 7th Edition. It
 versions the deterministic domain package, authoritative MCP server, Agent
 Skills, gateway, and UI together while preserving their independent runtime
@@ -17,6 +21,11 @@ skills/coc-module-generator/  CoC Pack authoring procedure
 
 `sagasmith-core` remains an independent system-neutral dependency. D&D and CoC
 have no source dependency on each other.
+
+This repository is the current source of truth for every CoC component listed
+above. The former standalone MCP, Skills, UI, and generic Module Generator
+repositories are archived read-only; current issues, releases, integrations,
+and documentation belong here.
 
 ## Development
 

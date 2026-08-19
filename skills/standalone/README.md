@@ -1,5 +1,7 @@
 # SagaSmith CoC Skills — Standalone
 
+> 此演示子集位于 `sagasmith-coc/skills/standalone`；它不是旧独立 Skills 仓库，也不替代 Full Runtime。
+
 **Python 标准库便携模式。** 用于无 Full runtime 环境的演示、快速调查与文件状态。
 
 ```powershell

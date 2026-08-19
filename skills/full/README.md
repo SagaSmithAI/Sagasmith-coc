@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [仓库说明](../README.md)
 
+> 这是 `sagasmith-coc/skills/full` 的同仓分发，不是独立仓库。
+
 Full Runtime 通过 sagasmith-coc-mcp 运行，绝不调用 CLI 或 full/tools 下的
 portable fallback。入口是 SKILL.md；Keeper 与 Campaign Manager 子 Skill
 按任务加载。

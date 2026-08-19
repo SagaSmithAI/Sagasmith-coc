@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [Repository](../README-en.md)
 
+> This is the repository-local `sagasmith-coc/skills/full` distribution, not a standalone repository.
+
 Full Runtime operates through sagasmith-coc-mcp and never calls a CLI or a
 portable fallback under full/tools. Load SKILL.md, then the task-specific Keeper
 or Campaign Manager child Skill.

@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [Hosted service](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
+> Current Skill source lives at `sagasmith-coc/skills`; the former standalone Skills and generic Module Generator repositories are archived.
+
 Agent Skills for SagaSmith Call of Cthulhu 7e. Full Runtime uses
 sagasmith-coc-mcp native dynamic tools for investigation, clues, Luck/Push, SAN,
 injury, combat, chases, development, Content Packs, continuity, ActorKnowledge,
@@ -26,8 +28,9 @@ pip install -e ..\sagasmith-coc
 pip install -e packages/mcp
 ~~~
 
-Configure and run sagasmith-coc-mcp, then expose full/ and
-Expose the repository-local `skills/coc-module-generator` as the authoring Skill root. The Host must refresh native schemas
+Configure and run sagasmith-coc-mcp, expose `skills/full/skills` as the Full
+Runtime root, and expose the repository-local `skills/coc-module-generator` as
+the authoring Skill root. The Host must refresh native schemas
 after tools/list_changed; a Host without dynamic native tool support cannot run
 Full Runtime.
 

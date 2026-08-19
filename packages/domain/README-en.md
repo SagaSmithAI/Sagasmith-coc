@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [Hosted service](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
+> Current source lives at `sagasmith-coc/packages/domain` and is versioned with the sibling MCP, Skills, and UI; the former split repositories are archived.
+
 **The Call of Cthulhu 7e system runtime for SagaSmithAI.** This package registers the `coc7e` plugin on `sagasmith-core` and implements investigators, d100 checks, sanity, combat, chases, and investigation-scenario parsing.
 
 > The cosmos may not care about an investigator. The runtime should at least remember exactly how much sanity they lost.
