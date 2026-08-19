@@ -27,6 +27,15 @@ above. The former standalone MCP, Skills, UI, and generic Module Generator
 repositories are archived read-only; current issues, releases, integrations,
 and documentation belong here.
 
+## Verified integration baseline
+
+The 2026-08-20 hosted regression uses the current SagaSmith Agent and Service,
+signed `sagasmith.auth-context/v1` principal context, session-scoped dynamic MCP
+tools, and this repository's Domain/MCP/Skills revision. The CoC reference
+campaign ran concurrently with the D&D reference campaign without a reported
+regression gap. This is evidence for the current hosted integration boundary,
+not a claim that every scenario or mutually exclusive path has been played.
+
 ## Development
 
 ```bash
