@@ -2,6 +2,8 @@
 
 [中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [托管服务](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
+> 当前源码位于 `sagasmith-coc/packages/mcp`，并从 CoC 垂直 monorepo 与 Domain、Skills、Workbench 契约一起发布。
+
 SagaSmithAI 的 Call of Cthulhu 7e 本地权威 MCP 服务。它把 `sagasmith-core` 的战役持久化、分支记忆、角色知识、快照、模组检索和统一 Content Pack，与 `sagasmith-coc` 的 d100、理智、战斗、追逐和可重放随机流整合为一个原生 MCP 边界。
 
 ## 运行时边界

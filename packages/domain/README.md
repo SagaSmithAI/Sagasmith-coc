@@ -2,7 +2,9 @@
 
 [中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [托管服务](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
-**SagaSmithAI 的 Call of Cthulhu 7e 系统运行时。** 本仓库在 `sagasmith-core` 上注册 `coc7e` 插件，提供调查员、d100 检定、SAN、战斗、追逐和调查模组解析。
+> 当前源码位于 `sagasmith-coc/packages/domain`，并与同仓 MCP、Skills 和 UI 一起版本化；原拆分仓库已归档。
+
+**SagaSmithAI 的 Call of Cthulhu 7e 系统运行时。** 本包在 `sagasmith-core` 上注册 `coc7e` 插件，提供调查员、d100 检定、SAN、战斗、追逐和调查模组解析。
 
 > 宇宙不关心调查员。运行时至少应准确记住他们失去了多少理智。
 
