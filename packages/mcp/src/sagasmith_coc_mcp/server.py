@@ -123,6 +123,13 @@ from sagasmith_core import (
     validate_subject_context_fact,
 )
 from sagasmith_core.access import LOCAL_SYSTEM_PRINCIPAL_ID
+from sagasmith_core.auth_context import (
+    AUTH_CONTEXT_META_KEY,
+    AUTH_CONTEXT_RECEIPT_META_KEY,
+    AuthContext,
+    AuthContextNonceGuard,
+    verify_auth_context,
+)
 from sagasmith_core.integrity import canonical_json
 from sagasmith_core.modules import MarkdownModuleParser
 from sagasmith_core.visibility import PLAYER_MODULE_VISIBILITY_SCOPES
@@ -158,6 +165,37 @@ from .tool_profiles import (
 )
 
 
+def _auth_receipt_revision(value: Any) -> int | str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in ("campaign_revision", "revision", "new_revision", "to_revision"):
+        revision = value.get(key)
+        if isinstance(revision, (int, str)) and not isinstance(revision, bool):
+            return revision
+    for nested in value.values():
+        if isinstance(nested, dict) and (revision := _auth_receipt_revision(nested)) is not None:
+            return revision
+    return None
+
+
+def _attach_auth_receipt(result: Any, context: AuthContext | None, tool: str) -> Any:
+    if context is None or not (isinstance(result, tuple) and len(result) == 2):
+        return result
+    content, structured = result
+    receipt = context.audit_receipt(tool=tool, revision=_auth_receipt_revision(structured))
+    updated = []
+    attached = False
+    for item in content:
+        if not attached and isinstance(item, TextContent):
+            metadata = dict(item.meta or {})
+            metadata[AUTH_CONTEXT_RECEIPT_META_KEY] = receipt
+            updated.append(item.model_copy(update={"meta": metadata}))
+            attached = True
+        else:
+            updated.append(item)
+    return updated, structured
+
+
 def _preload_optional_pdf_runtime() -> None:
     """Load PDF native dependencies before the stdio host starts worker threads."""
 
@@ -181,6 +219,7 @@ class SessionExposureFastMCP(FastMCP):
         context_binding_factory: Any,
         authorization_fingerprint_lookup: Any,
         bound_principal_id: str | None = None,
+        auth_context_secret: str | None = None,
         **kwargs: Any,
     ) -> None:
         self.exposure_registry = exposure_registry
@@ -190,6 +229,8 @@ class SessionExposureFastMCP(FastMCP):
         self._context_binding_factory = context_binding_factory
         self._authorization_fingerprint_lookup = authorization_fingerprint_lookup
         self._bound_principal_id = bound_principal_id.strip() if bound_principal_id else None
+        self._auth_context_secret = auth_context_secret
+        self._auth_context_nonces = AuthContextNonceGuard() if auth_context_secret else None
         self._sessions: WeakValueDictionary[str, Any] = WeakValueDictionary()
         self._exposure_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
         super().__init__(*args, **kwargs)
@@ -240,15 +281,88 @@ class SessionExposureFastMCP(FastMCP):
         result["principal_id"] = exposure.principal_id
         return result
 
+    def _principal_argument(self, tool_id: str) -> str | None:
+        tool = self._tool_manager.get_tool(tool_id)
+        properties = dict((tool.parameters if tool else {}).get("properties") or {})
+        for candidate in ("auth_principal_id", "by_principal_id", "principal_id"):
+            if candidate in properties:
+                return candidate
+        return None
+
     def _bind_configured_principal(self, tool_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         result = dict(arguments)
         if self._bound_principal_id is None:
             return result
-        tool = self._tool_manager.get_tool(tool_id)
-        properties = dict((tool.parameters if tool else {}).get("properties") or {})
-        if "principal_id" in properties:
-            result["principal_id"] = self._bound_principal_id
+        principal_argument = self._principal_argument(tool_id)
+        if principal_argument is not None:
+            result[principal_argument] = self._bound_principal_id
         return result
+
+    @staticmethod
+    def _argument_campaign_id(arguments: dict[str, Any]) -> str:
+        campaign_id = str(arguments.get("campaign_id") or "").strip()
+        if campaign_id:
+            return campaign_id
+        for key in ("payload", "data"):
+            nested = arguments.get(key)
+            if isinstance(nested, dict) and (value := str(nested.get("campaign_id") or "").strip()):
+                return value
+        return ""
+
+    def _verify_request_auth_context(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any],
+        session: Any,
+        exposure: Exposure | None,
+    ) -> AuthContext | None:
+        principal_argument = self._principal_argument(name)
+        if self._auth_context_secret is None or principal_argument is None:
+            return None
+        actor = str(arguments.get(principal_argument) or "").strip()
+        if not actor:
+            raise ExposureError("tool caller principal is required")
+        try:
+            metadata = self.get_context().request_context.meta
+            envelope = getattr(metadata, AUTH_CONTEXT_META_KEY, None)
+            expected_campaign = self._argument_campaign_id(arguments)
+            if (
+                not expected_campaign
+                and exposure is not None
+                and not (name == "exposure" and arguments.get("action") == "open")
+            ):
+                expected_campaign = exposure.campaign_id or ""
+            context = verify_auth_context(
+                envelope,
+                self._auth_context_secret,
+                expected_actor=actor,
+                expected_campaign=expected_campaign,
+            )
+        except ValueError as exc:
+            raise ExposureError(str(exc)) from exc
+        bound_session_id = getattr(session, "_sagasmith_auth_session_id", None)
+        bound_conversation = getattr(session, "_sagasmith_auth_conversation", None)
+        if bound_session_id is not None and bound_session_id != context.session_id:
+            raise ExposureError("auth context session changed within one MCP session")
+        if bound_conversation is not None and bound_conversation != context.conversation_principal:
+            raise ExposureError("auth context conversation changed within one MCP session")
+        expected_epoch = (
+            exposure.revision
+            if exposure is not None
+            and not (name == "exposure" and arguments.get("action") == "open")
+            else 0
+        )
+        if context.authorization_epoch != expected_epoch:
+            raise ExposureError("auth context authorization_epoch is stale")
+        assert self._auth_context_nonces is not None
+        try:
+            self._auth_context_nonces.remember(context)
+        except (RuntimeError, ValueError) as exc:
+            raise ExposureError(str(exc)) from exc
+        setattr(session, "_sagasmith_auth_session_id", context.session_id)
+        setattr(session, "_sagasmith_auth_conversation", context.conversation_principal)
+        return context
 
     async def _refresh(self, session_key: str, campaign_id: str | None = None) -> bool:
         changed_session_keys: set[str] = set()
@@ -285,7 +399,7 @@ class SessionExposureFastMCP(FastMCP):
         request = self._request_session()
         if request is None:
             return public_tools
-        session_key, _ = request
+        session_key, request_session = request
         await self._refresh(session_key)
         visible = self.exposure_registry.visible_tools(self.exposure_registry.active(session_key))
         return [tool for tool in public_tools if tool.name in visible]
@@ -294,7 +408,7 @@ class SessionExposureFastMCP(FastMCP):
         request = self._request_session()
         if request is None:
             return await super().call_tool(name, arguments)
-        session_key, _ = request
+        session_key, request_session = request
         await self._refresh(session_key)
         arguments = self._bind_configured_principal(name, arguments)
         if name in HOST_PRIVATE_TOOLS:
@@ -307,6 +421,12 @@ class SessionExposureFastMCP(FastMCP):
             self.exposure_registry.require_tool(exposure, name)
             bound = self._bind_principal(exposure, name, bound)
             self._scope_validator(exposure, name, bound)
+        auth_context = self._verify_request_auth_context(
+            name=name,
+            arguments=bound,
+            session=request_session,
+            exposure=exposure,
+        )
         result = await super().call_tool(name, bound)
         if name == "exposure" and bound.get("action") in {"open", "set"}:
             session = self._sessions.get(session_key)
@@ -324,8 +444,13 @@ class SessionExposureFastMCP(FastMCP):
                 or LOCAL_SYSTEM_PRINCIPAL_ID
             )
             binding = self._context_binding_factory(campaign_id, principal_id, bound)
+            current_exposure = self.exposure_registry.active(session_key)
+            if binding is not None:
+                binding["authorization_epoch"] = (
+                    current_exposure.revision if current_exposure is not None else 0
+                )
             result = self._attach_host_context_binding(result, binding)
-        return result
+        return _attach_auth_receipt(result, auth_context, name)
 
     @staticmethod
     def _attach_host_context_binding(result: Any, binding: dict[str, str] | None) -> Any:
@@ -534,6 +659,7 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
         context_binding_factory=authoritative_host_context_binding,
         authorization_fingerprint_lookup=access.authorization_fingerprint,
         bound_principal_id=config.bound_principal_id,
+        auth_context_secret=config.auth_context_secret,
         host=config.http_host,
         port=config.http_port,
         streamable_http_path=config.http_path,

@@ -11,6 +11,15 @@ def _workspace_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
+def _auth_context_secret() -> str | None:
+    value = os.environ.get("SAGASMITH_AUTH_CONTEXT_SECRET", "")
+    if not value:
+        return None
+    if len(value.encode("utf-8")) < 32:
+        raise ValueError("SAGASMITH_AUTH_CONTEXT_SECRET must contain at least 32 bytes")
+    return value
+
+
 @dataclass(frozen=True)
 class McpConfig:
     home: Path
@@ -18,6 +27,7 @@ class McpConfig:
     coc_skills_dir: Path
     modulegen_skills_dir: Path
     bound_principal_id: str | None = None
+    auth_context_secret: str | None = None
     npc_host_token: str | None = None
     module_import_roots: tuple[Path, ...] = ()
     http_host: str = "127.0.0.1"
@@ -61,6 +71,7 @@ class McpConfig:
                 and value.strip()
                 else None
             ),
+            auth_context_secret=_auth_context_secret(),
             npc_host_token=(
                 value.strip()
                 if (value := os.environ.get("SAGASMITH_NPC_HOST_TOKEN"))
