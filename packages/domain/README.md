@@ -40,11 +40,14 @@ flowchart LR
 Python 3.11+：
 
 ```bash
-pip install "sagasmith-coc[documents]"
+pip install sagasmith-coc
 sagasmith-coc doctor --json
 sagasmith-coc --help
 sagasmith-coc database upgrade --json
 ```
+
+基础安装只包含 Core 数据库与文字运行时；Markdown/text、SQLite、FTS 与普通
+CoC 文字团不要求 PDF、图片、ChromaDB、Sentence Transformers 或 Torch。
 
 `database upgrade` 要求数据库符合当前 Snapshot schema v8：每个完整状态文档都以独立、checksum 有效的 `zlib-1` 记录保存。执行前必须停止写入并创建一致性数据库备份。当前格式没有 downgrade；回滚需恢复成套的数据库以及匹配的 Core/CoC 版本。
 
@@ -62,8 +65,13 @@ sagasmith-coc sanity --campaign <id> --loss "1/1D6" --json
 | Extra | 用途 |
 |---|---|
 | `documents` | PDF 解析 |
-| `dense` | sentence-transformers + ChromaDB |
-| `all` | 全部可选运行时依赖 |
+| `embedding` | Sentence Transformers 嵌入模型 |
+| `vector` | ChromaDB 向量存储 |
+| `dense` | `embedding` + `vector` |
+| `all` | 文档、嵌入与向量能力 |
+
+当前 CoC Domain/MCP 没有 OCR 执行路径，因此不会提供一个实际无效的 `ocr`
+extra。扫描件须先生成可复核的合法文本层，再进入导入流程。
 
 ## 模组解析契约
 

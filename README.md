@@ -27,6 +27,31 @@ above. The former standalone MCP, Skills, UI, and generic Module Generator
 repositories are archived read-only; current issues, releases, integrations,
 and documentation belong here.
 
+## Local Agent Kit install profiles
+
+The CoC-only text MCP does not require PDF, image, embedding, or vector stacks:
+
+```bash
+pip install sagasmith-coc-mcp
+sagasmith-coc-mcp
+```
+
+That baseline provides SQLite state, Markdown/text content, FTS retrieval, and
+the native MCP contract. Optional profiles are explicit:
+
+```bash
+pip install "sagasmith-coc-mcp[documents]"  # PDF text and page handling
+pip install "sagasmith-coc-mcp[images]"     # visual PDF page review
+pip install "sagasmith-coc-mcp[dense]"      # Domain embedding/vector stack
+pip install "sagasmith-coc-mcp[all]"        # every implemented optional profile
+```
+
+The current CoC importer has no OCR execution path, so this repository does not
+advertise a misleading `ocr` extra; scanned sources must first receive a legal,
+reviewable text layer. Cross-system Local Agent Kit manifests remain owned by
+`SagaSmith-agent`; this vertical repository owns only the CoC package/extras
+contract.
+
 ## Verified integration baseline
 
 The 2026-08-20 hosted regression uses the current SagaSmith Agent and Service,
