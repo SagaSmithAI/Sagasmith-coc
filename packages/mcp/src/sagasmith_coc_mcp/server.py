@@ -8231,7 +8231,16 @@ def main() -> None:
     transport = os.environ.get("SAGASMITH_COC_MCP_TRANSPORT", "stdio").strip().casefold()
     if transport not in {"stdio", "streamable-http"}:
         raise ValueError("SAGASMITH_COC_MCP_TRANSPORT must be 'stdio' or 'streamable-http'")
-    create_server(McpConfig.from_environment()).run(transport=transport)
+    config = McpConfig.from_environment()
+    if (
+        transport == "streamable-http"
+        and config.http_host.strip().casefold() not in {"127.0.0.1", "::1", "localhost"}
+        and config.auth_context_secret is None
+    ):
+        raise ValueError(
+            "CoC non-loopback Streamable HTTP requires SAGASMITH_AUTH_CONTEXT_SECRET"
+        )
+    create_server(config).run(transport=transport)
 
 
 if __name__ == "__main__":

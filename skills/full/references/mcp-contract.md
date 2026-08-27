@@ -6,7 +6,7 @@ There is no CLI or fixed-superset compatibility path.
 
 ## Always-visible tools
 
-The six bootstrap tools are visible in every phase:
+The 7 bootstrap tools are visible in every phase:
 
 | Tool | Purpose |
 |---|---|
@@ -15,6 +15,7 @@ The six bootstrap tools are visible in every phase:
 | storage_status | local database/artifact readiness |
 | campaign_query | list/get accessible coc7e campaigns |
 | game_phase | read authoritative Lobby/Play/Combat phase |
+| resolution_presentation | read the audience-safe result of a resolved mechanic |
 | skill_query | list/read installed CoC and ModuleGen Skills |
 
 Start an MCP session with exposure(action="open"). Before a campaign exists,
@@ -44,13 +45,14 @@ inventory_change        long_term_change
 memory_change           memory_query
 module_change           module_draft           module_query
 npc_conversation
+resolution_presentation
 rule_query              rulebook_draft
 server_capabilities     skill_query
 snapshot_change         snapshot_query         state_revision
-storage_status
+storage_status          wallet_change
 ~~~
 
-CORE tools are the six bootstrap tools above. Every other tool must be
+CORE tools are the 7 bootstrap tools above. Every other tool must be
 phase-legal, exposed for the current session, and authorized again at call time.
 
 ## Phase catalog
