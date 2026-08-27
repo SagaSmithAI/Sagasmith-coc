@@ -162,6 +162,16 @@ def test_coc_mcp_persists_campaign_modules_and_actor_knowledge(tmp_path) -> None
     async def scenario() -> tuple[str, str, str]:
         capabilities = await call(server, "server_capabilities", {})
         assert capabilities["progressive_exposure"] is True
+        assert capabilities["authoritative_contract"] == {
+            "schema": "sagasmith.authoritative-mcp/v1",
+            "transports": ["stdio", "streamable-http"],
+            "shared_handlers": True,
+            "dynamic_tool_exposure": "session-scoped",
+            "revision_model": "optimistic",
+            "idempotency_model": "required-for-writes",
+            "authority_model": "server-owned",
+            "error_model": "mcp-tool-error",
+        }
         campaign = await call(
             server,
             "campaign_change",
