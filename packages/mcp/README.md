@@ -94,11 +94,32 @@ content review、actor 与 binding 的每一步都按内容身份或子幂等键
 ## 启动
 
 ```bash
-pip install -e "../sagasmith-core[documents]"
-pip install -e ../sagasmith-coc
-pip install -e .
+pip install sagasmith-coc-mcp
 sagasmith-coc-mcp
 ```
+
+这是 CoC-only Local Kit 的文字基线：SQLite、FTS、Markdown/text 和权威 MCP
+handlers 均可用，不会强制安装 Core documents/vector/embedding、Pillow、
+ChromaDB 或 Torch。PDF 能力只在调用时加载，缺失时返回明确安装指令。
+
+| Extra | 能力 |
+|---|---|
+| `documents` | PDF 文本提取与页面渲染 |
+| `images` | 视觉 PDF 页面审阅；当前复用 `documents` 栈 |
+| `embedding` | Domain/CLI 的 Sentence Transformers 嵌入 |
+| `vector` | Domain/CLI 的 ChromaDB 向量存储 |
+| `dense` | `embedding` + `vector` |
+| `gateway` | Workbench gateway |
+| `all` | 当前已实现的文档、嵌入与向量能力 |
+
+```bash
+pip install "sagasmith-coc-mcp[documents]"
+pip install "sagasmith-coc-mcp[dense]"
+```
+
+当前 CoC 导入器没有 OCR 执行路径，因此不声明虚假的 `ocr` extra；扫描件须先生成
+可复核的合法文本层。跨系统 Local Kit manifest 由 `SagaSmith-agent` 维护，本仓只
+声明 CoC wheel 与 extras。
 
 本地 MCP 的 stdio 与 loopback Streamable HTTP 运行同一个 `create_server()`
 及同一组权威 handlers；tool schema、错误、revision、idempotency 和 authority

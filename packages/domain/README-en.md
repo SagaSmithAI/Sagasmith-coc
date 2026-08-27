@@ -40,10 +40,14 @@ The independently packaged [SagaSmith-coc-mcp](../mcp) connects MCP-owned storag
 Requires Python 3.11+:
 
 ```bash
-pip install "sagasmith-coc[documents]"
+pip install sagasmith-coc
 sagasmith-coc doctor --json
 sagasmith-coc --help
 ```
+
+The baseline contains only the Core database and text runtime. Markdown/text,
+SQLite, FTS, and ordinary CoC text sessions do not require PDF, image,
+ChromaDB, Sentence Transformers, or Torch packages.
 
 ```bash
 sagasmith-coc campaign start --name "Arkham Files" --json
@@ -56,8 +60,14 @@ sagasmith-coc sanity --campaign <id> --loss "1/1D6" --json
 | Extra | Purpose |
 |---|---|
 | `documents` | PDF parsing |
-| `dense` | sentence-transformers + ChromaDB |
-| `all` | all optional runtime dependencies |
+| `embedding` | Sentence Transformers embedding models |
+| `vector` | ChromaDB vector storage |
+| `dense` | `embedding` + `vector` |
+| `all` | document, embedding, and vector capabilities |
+
+The current CoC Domain/MCP has no OCR execution path, so it does not expose a
+misleading `ocr` extra. Scanned sources need a legal, reviewable text layer
+before import.
 
 ## Scenario parser contract
 

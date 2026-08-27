@@ -98,11 +98,35 @@ the target was removed.
 ## Run
 
 ```bash
-pip install -e "../sagasmith-core[documents]"
-pip install -e ../sagasmith-coc
-pip install -e .
+pip install sagasmith-coc-mcp
 sagasmith-coc-mcp
 ```
+
+This is the CoC-only Local Kit text baseline: SQLite, FTS, Markdown/text, and
+the authoritative MCP handlers work without forcing Core documents/vector/
+embedding, Pillow, ChromaDB, or Torch onto the installation. PDF libraries load
+only when their capability is called and otherwise return an actionable install
+instruction.
+
+| Extra | Capability |
+|---|---|
+| `documents` | PDF text extraction and page rendering |
+| `images` | visual PDF page review; currently shares the `documents` stack |
+| `embedding` | Domain/CLI Sentence Transformers embeddings |
+| `vector` | Domain/CLI ChromaDB vector storage |
+| `dense` | `embedding` + `vector` |
+| `gateway` | Workbench gateway |
+| `all` | all currently implemented document, embedding, and vector capabilities |
+
+```bash
+pip install "sagasmith-coc-mcp[documents]"
+pip install "sagasmith-coc-mcp[dense]"
+```
+
+The current CoC importer has no OCR execution path, so it does not declare a
+misleading `ocr` extra; scanned sources need a legal, reviewable text layer
+before import. `SagaSmith-agent` owns cross-system Local Kit manifests. This
+repository declares only the CoC wheel and extras boundary.
 
 Local stdio and loopback Streamable HTTP both run the same `create_server()`
 and authoritative handlers. Tool schemas, errors, revisions, idempotency, and
