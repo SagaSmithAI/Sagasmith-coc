@@ -105,6 +105,11 @@ sagasmith-coc-mcp
 语义不得按 transport 分叉。stdio 适合一个 Agent 独占一个进程，统一本地栈默认使用
 Streamable HTTP 权威服务与粘性会话 Workbench gateway：
 
+原始 MCP 仅在 loopback 上允许无签名启动。将
+`SAGASMITH_COC_MCP_HTTP_HOST` 设为非 loopback 地址时，必须同时配置至少
+32 字节的 `SAGASMITH_AUTH_CONTEXT_SECRET`；Gateway bearer token 只保护
+Gateway，不能替代 MCP auth context。
+
 ```powershell
 $env:SAGASMITH_COC_MCP_TRANSPORT = "streamable-http"
 $env:SAGASMITH_COC_MCP_HTTP_PORT = "8769"

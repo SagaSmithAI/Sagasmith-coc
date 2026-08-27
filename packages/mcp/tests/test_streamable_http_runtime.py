@@ -8,9 +8,13 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from sagasmith_coc_mcp.config import McpConfig
 from sagasmith_coc_mcp.gateway import CocMcpClient, GatewayConfig, create_app
+
+AUTH_CONTEXT_SECRET = "test-auth-context-secret-with-at-least-32-bytes"
 
 
 def _unused_loopback_port() -> int:
@@ -115,3 +119,48 @@ def test_real_streamable_http_and_sticky_gateway(tmp_path: Path) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+
+
+def test_non_loopback_streamable_http_requires_auth_context_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sagasmith_coc_mcp import server
+
+    monkeypatch.setenv("SAGASMITH_COC_MCP_TRANSPORT", "streamable-http")
+    monkeypatch.setenv("SAGASMITH_COC_MCP_HTTP_HOST", "0.0.0.0")
+    monkeypatch.delenv("SAGASMITH_AUTH_CONTEXT_SECRET", raising=False)
+    monkeypatch.setattr(
+        server,
+        "create_server",
+        lambda config: pytest.fail("the insecure HTTP server was created"),
+    )
+
+    with pytest.raises(ValueError, match="non-loopback.*SAGASMITH_AUTH_CONTEXT_SECRET"):
+        server.main()
+
+
+def test_non_loopback_streamable_http_accepts_signed_auth_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sagasmith_coc_mcp import server
+
+    transports: list[str] = []
+    auth_context_secrets: list[str | None] = []
+
+    class StubServer:
+        def run(self, *, transport: str) -> None:
+            transports.append(transport)
+
+    def create_stub(config: McpConfig) -> StubServer:
+        auth_context_secrets.append(config.auth_context_secret)
+        return StubServer()
+
+    monkeypatch.setenv("SAGASMITH_COC_MCP_TRANSPORT", "streamable-http")
+    monkeypatch.setenv("SAGASMITH_COC_MCP_HTTP_HOST", "0.0.0.0")
+    monkeypatch.setenv("SAGASMITH_AUTH_CONTEXT_SECRET", AUTH_CONTEXT_SECRET)
+    monkeypatch.setattr(server, "create_server", create_stub)
+
+    server.main()
+
+    assert transports == ["streamable-http"]
+    assert auth_context_secrets == [AUTH_CONTEXT_SECRET]
