@@ -1,6 +1,6 @@
 # SagaSmith CoC MCP
 
-[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [Hosted service](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > Current source lives at `sagasmith-coc/packages/mcp` and is released from the CoC vertical monorepo with its Domain, Skills, and Workbench contracts.
 
@@ -104,8 +104,11 @@ pip install -e .
 sagasmith-coc-mcp
 ```
 
-The unified local stack runs the authority over streamable HTTP and serves the
-Workbench through a sticky-session gateway:
+Local stdio and loopback Streamable HTTP both run the same `create_server()`
+and authoritative handlers. Tool schemas, errors, revisions, idempotency, and
+authority semantics do not fork by transport. Use stdio when one Agent owns the
+process; the unified local stack uses Streamable HTTP and serves the Workbench
+through a sticky-session gateway:
 
 ```powershell
 $env:SAGASMITH_COC_MCP_TRANSPORT = "streamable-http"

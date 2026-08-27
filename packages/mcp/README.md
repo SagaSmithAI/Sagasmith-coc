@@ -1,6 +1,6 @@
 # SagaSmith CoC MCP
 
-[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [托管服务](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > 当前源码位于 `sagasmith-coc/packages/mcp`，并从 CoC 垂直 monorepo 与 Domain、Skills、Workbench 契约一起发布。
 
@@ -100,7 +100,10 @@ pip install -e .
 sagasmith-coc-mcp
 ```
 
-统一本地栈使用 streamable HTTP 权威服务与粘性会话 Workbench gateway：
+本地 MCP 的 stdio 与 loopback Streamable HTTP 运行同一个 `create_server()`
+及同一组权威 handlers；tool schema、错误、revision、idempotency 和 authority
+语义不得按 transport 分叉。stdio 适合一个 Agent 独占一个进程，统一本地栈默认使用
+Streamable HTTP 权威服务与粘性会话 Workbench gateway：
 
 ```powershell
 $env:SAGASMITH_COC_MCP_TRANSPORT = "streamable-http"

@@ -64,6 +64,12 @@ def test_real_streamable_http_and_sticky_gateway(tmp_path: Path) -> None:
             try:
                 capabilities = await mcp.call_tool("server_capabilities", {})
                 assert capabilities.isError is not True
+                capability_value = dict(capabilities.structuredContent or {})
+                capability_value = dict(capability_value.get("result") or capability_value)
+                contract = capability_value["authoritative_contract"]
+                assert contract["schema"] == "sagasmith.authoritative-mcp/v1"
+                assert contract["transports"] == ["stdio", "streamable-http"]
+                assert contract["shared_handlers"] is True
                 created = await mcp.call_tool(
                     "campaign_change",
                     {
