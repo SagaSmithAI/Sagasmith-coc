@@ -1,6 +1,29 @@
 # SagaSmith CoC MCP
 
-[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+## MCP 2026-07-28 and compatibility mode
+
+The same handlers serve modern MCP 2026-07-28 and the explicit legacy migration
+path. Modern requests do not rely on `initialize`, `Mcp-Session-Id`, or a
+connection-bound principal. Every request carries a target-specific, at-most
+15-minute `sagasmith.auth-context/v2` delegation in `_meta`. The MCP revalidates
+the target service, operation, audience, requester/resource owner/acting identity,
+`room_turn_id`, `base_revision`, and expiry, then overwrites model-authored identity.
+Browser tokens and tokens minted for another audience must never be passed through.
+
+Modern `tools/list` is complete, deterministically sorted, and privately cacheable
+for the same authorization scope (`ttlMs=300000`). Phase, role, and tool side
+effects do not mutate the catalog. A Host may show its model a task/phase subset,
+while the MCP still rechecks role, phase, and revision at execution. `exposure`
+returns an owner- and TTL-bound opaque handle for catalog guidance only; it grants
+no authority. Connection exposure and `tools/list_changed` remain only in the
+explicit legacy adapter and are not a durable security boundary.
+
+List APIs default to 50 records, enforce a maximum of 100, and return
+`next_cursor`; callers must reuse that cursor verbatim. Expected, model-repairable
+failures return `isError: true` with actionable guidance. Protocol/input failures
+remain JSON-RPC errors, and unexpected internal failures do not expose details.
+
+[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > Current source lives at `sagasmith-coc/packages/mcp` and is released from the CoC vertical monorepo with its Domain, Skills, and Workbench contracts.
 
@@ -9,21 +32,22 @@ The local authoritative MCP server for SagaSmithAI's Call of Cthulhu 7e stack. I
 ## Runtime boundary
 
 - MCP owns campaign state, authorization, revisions, idempotency, random-stream receipts, and atomic random resolution.
-- Each MCP session owns an independent native tool exposure. Lobby, Play, and Combat policies are enforced again at call time.
-- Hosts must refresh native schemas after `tools/list_changed`. There is no fixed-superset, text imitation, or `exposure_call` fallback.
+- Modern `tools/list` is stable and sorted. The Host selects a Lobby, Play, or Combat subset for its model; policy is enforced again at call time.
+- Legacy clients may retain connection exposure and `tools/list_changed` during migration. Neither is an authorization boundary.
 - The Agent owns source interpretation and scenario-specific semantic decisions. Finalized Pack decisions retain source evidence.
 
 The native capability flow is:
 
 ```text
-exposure(open) -> exposure(search) -> exposure(set) -> native domain tool
+tools/list -> Host task/phase selection -> native domain tool
+optional: exposure(open) -> exposure(search|set, exposure_handle)  # guidance only
 ```
 
 Keeper recovery uses `branch_query/change`, `snapshot_query/change`, and
 `state_revision`. Every mutation requires explicit revision, branch or history-cursor
 guards plus an `idempotency_key`. When checkout, restore, undo, or redo changes the
-authoritative phase, the server emits `tools/list_changed`; after refreshing, the host can
-load and directly call the next legal native tool for that phase.
+authoritative phase, modern catalogs remain stable and the Host updates only its model-facing
+selection. The legacy adapter may emit `tools/list_changed` for old clients.
 
 Snapshots remain independently restorable full state documents at the public
 boundary. Core schema v8 stores each document as one bounded, checksummed
@@ -132,7 +156,7 @@ Local stdio and loopback Streamable HTTP both run the same `create_server()`
 and authoritative handlers. Tool schemas, errors, revisions, idempotency, and
 authority semantics do not fork by transport. Use stdio when one Agent owns the
 process; the unified local stack uses Streamable HTTP and serves the Workbench
-through a sticky-session gateway:
+through a bounded connection-reusing gateway:
 
 ```powershell
 $env:SAGASMITH_COC_MCP_TRANSPORT = "streamable-http"
@@ -145,9 +169,9 @@ $env:SAGASMITH_COC_GATEWAY_PORT = "8768"
 sagasmith-coc-gateway
 ```
 
-The browser never submits a principal. The gateway binds identity server-side,
-keeps an MCP session sticky per browser/campaign, and refreshes the native list
-after `tools/list_changed`.
+The browser never submits an authoritative principal. The gateway derives identity
+server-side and may reuse HTTP connections, but every MCP request is independently
+authorized; no principal or campaign state is pooled in the connection.
 
 State defaults to `.sagasmith-coc-mcp/`. The main configuration variables are:
 

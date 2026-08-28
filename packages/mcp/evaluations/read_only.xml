@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evaluation>
+  <qa_pair>
+    <question>Across every closed-case campaign in the deterministic evaluation fixture, page through every complete investigator roster. Which campaign has the largest roster?</question>
+    <answer>Arkham Lantern</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Explore every fixture campaign and detailed actor record. Considering only investigators, which actor name is alphabetically last?</question>
+    <answer>Zora Vale</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Find the sole actor classified as a creature, then resolve the campaign containing that actor. What is the campaign name?</question>
+    <answer>Kingsport Signal</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Enumerate all fixture campaigns through pagination and inspect their complete rosters. How many actors are classified as NPCs in total?</question>
+    <answer>4</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>After traversing every fixture campaign and paging through every roster, how many campaign-bound actors exist altogether?</question>
+    <answer>7</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Compare actor classifications across all fixture campaigns. Which campaign has the same number of investigators and NPCs?</question>
+    <answer>Kingsport Signal</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Read every detailed actor record and locate the summary concerning custody of a sealed observatory. What is that actor's name?</question>
+    <answer>Nyx Marsh</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Resolve the roster belonging to Kingsport Signal and count the distinct actor classifications represented there. What is the count?</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Resolve each campaign's system identifier and verify it against the server capability record. What identifier is shared by both fixture campaigns?</question>
+    <answer>coc7e</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Sort the fixture campaigns by their human-readable names, select the first, and report its canonical slug.</question>
+    <answer>arkham-lantern</answer>
+  </qa_pair>
+</evaluation>

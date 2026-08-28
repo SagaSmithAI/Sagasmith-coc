@@ -8,4 +8,3 @@ from sagasmith_core.integrity import (
 )
 
 __all__ = ["sign_receipt", "verify_receipt_signature"]
-

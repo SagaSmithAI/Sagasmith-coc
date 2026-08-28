@@ -9,3 +9,4 @@ node_modules/
 .astro/
 coverage/
 *.db
+.sagasmith-coc-mcp/

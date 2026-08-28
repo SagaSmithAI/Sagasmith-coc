@@ -21,9 +21,7 @@ BOUNDED_OUTPUT_CONTRACTS = {
     "source_interpretation": "source-interpretation-proposal.v1",
     "bounded_ruling": "bounded-ruling-proposal.v1",
 }
-CLAIM_POSTURES = frozenset(
-    {"supported", "inference", "uncertain", "opinion", "nonfactual"}
-)
+CLAIM_POSTURES = frozenset({"supported", "inference", "uncertain", "opinion", "nonfactual"})
 RESOLUTION_KINDS = frozenset(
     {
         "skill_check",
@@ -317,12 +315,8 @@ def normalize_bounded_proposal(purpose: str, value: Any) -> dict[str, Any]:
             raise ValueError("requires_dm_review must be boolean")
         claims = _claims(data.get("claims"))
         if not claims or not any(item["basis_refs"] for item in claims):
-            raise ValueError(
-                "source_interpretation requires at least one evidence-bound claim"
-            )
-        ambiguities = _strings(
-            data.get("ambiguities"), "ambiguities", maximum=1_000
-        )
+            raise ValueError("source_interpretation requires at least one evidence-bound claim")
+        ambiguities = _strings(data.get("ambiguities"), "ambiguities", maximum=1_000)
         requires_dm_review = data["requires_dm_review"]
         if (
             ambiguities or any(item["posture"] == "uncertain" for item in claims)
@@ -409,12 +403,9 @@ def validate_bounded_proposal_refs(
     if purpose == "faction_turn" and subject_ref != f"faction:{proposal['faction_id']}":
         raise ValueError("faction proposal does not match its signed subject")
     allowed_actor_ids = {
-        ref.removeprefix("actor:")
-        for ref in allowed_target_refs
-        if ref.startswith("actor:")
+        ref.removeprefix("actor:") for ref in allowed_target_refs if ref.startswith("actor:")
     }
     for field in ("resolution_requests", "engine_requests"):
         for request in proposal.get(field) or []:
             if unknown := sorted(set(dict(request).get("actor_ids") or []) - allowed_actor_ids):
                 raise ValueError(f"proposal cites actor ids outside its bundle: {unknown}")
-

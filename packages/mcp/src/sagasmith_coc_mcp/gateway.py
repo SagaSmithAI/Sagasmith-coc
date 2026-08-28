@@ -123,7 +123,7 @@ class CocMcpClient:
         while True:
             try:
                 async with streamable_http_client(self.url) as streams:
-                    read_stream, write_stream, _ = streams
+                    read_stream, write_stream = streams
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
                         if first_attempt:
@@ -184,7 +184,7 @@ class CocMcpClient:
                     "principal_id": self.principal_id,
                 },
             )
-            if opened.isError and "already bound" not in self._error_text(opened):
+            if opened.is_error and "already bound" not in self._error_text(opened):
                 self._raise_tool_error(opened)
             loaded = await session.call_tool(
                 "exposure",
@@ -196,14 +196,10 @@ class CocMcpClient:
                 },
             )
             self._raise_tool_error(loaded)
-            tool_defs = {
-                item.name: item for item in (await self._list_tools(session)).tools
-            }
+            tool_defs = {item.name: item for item in (await self._list_tools(session)).tools}
             listed = set(tool_defs)
             if tool not in listed:
-                raise RuntimeError(
-                    f"CoC MCP did not expose {tool!r} after tools/list_changed"
-                )
+                raise RuntimeError(f"CoC MCP did not expose {tool!r} after tools/list_changed")
         principal_key = self._principal_key(tool_defs[tool])
         if principal_key:
             arguments = {**arguments, principal_key: self.principal_id}
@@ -225,7 +221,7 @@ class CocMcpClient:
 
     @staticmethod
     def _principal_key(tool_def: Any) -> str | None:
-        schema = getattr(tool_def, "inputSchema", None)
+        schema = getattr(tool_def, "input_schema", None)
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         for name in ("auth_principal_id", "by_principal_id", "principal_id"):
             if name in properties:
@@ -245,7 +241,7 @@ class CocMcpClient:
 
     @classmethod
     def _raise_tool_error(cls, result: CallToolResult) -> None:
-        if result.isError:
+        if result.is_error:
             raise McpToolRejectedError(cls._error_text(result)[:2000])
 
 
@@ -308,7 +304,7 @@ GATEWAY_KEY = web.AppKey("gateway", CocGateway)
 
 
 def _json_result(result: CallToolResult) -> dict[str, Any]:
-    structured = result.structuredContent
+    structured = result.structured_content
     if structured is not None:
         return {"ok": True, "result": {"structuredContent": structured}}
     texts = [str(getattr(item, "text", "")) for item in result.content]

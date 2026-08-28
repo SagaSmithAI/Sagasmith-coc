@@ -51,9 +51,7 @@ def test_base_wheels_do_not_require_heavy_local_kit_dependencies() -> None:
     for distribution in ("sagasmith-coc", "sagasmith-coc-mcp"):
         installed = metadata(distribution).get_all("Requires-Dist") or []
         base_requirements = [item for item in installed if "extra ==" not in item]
-        assert not (
-            {_distribution_name(item) for item in base_requirements} & HEAVY_DISTRIBUTIONS
-        )
+        assert not ({_distribution_name(item) for item in base_requirements} & HEAVY_DISTRIBUTIONS)
         assert all(
             "[" not in item.partition(">=")[0]
             for item in base_requirements

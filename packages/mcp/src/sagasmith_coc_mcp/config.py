@@ -52,9 +52,7 @@ class McpConfig:
             .expanduser()
             .resolve(),
             database_url=os.environ.get("SAGASMITH_COC_DATABASE_URL"),
-            coc_skills_dir=Path(
-                os.environ.get("SAGASMITH_COC_SKILLS_DIR", root / "skills")
-            )
+            coc_skills_dir=Path(os.environ.get("SAGASMITH_COC_SKILLS_DIR", root / "skills"))
             .expanduser()
             .resolve(),
             modulegen_skills_dir=Path(
@@ -74,8 +72,7 @@ class McpConfig:
             auth_context_secret=_auth_context_secret(),
             npc_host_token=(
                 value.strip()
-                if (value := os.environ.get("SAGASMITH_NPC_HOST_TOKEN"))
-                and value.strip()
+                if (value := os.environ.get("SAGASMITH_NPC_HOST_TOKEN")) and value.strip()
                 else None
             ),
             module_import_roots=tuple(path.resolve() for path in module_roots),

@@ -67,11 +67,11 @@ def test_real_streamable_http_and_sticky_gateway(tmp_path: Path) -> None:
             await mcp.start()
             try:
                 capabilities = await mcp.call_tool("server_capabilities", {})
-                assert capabilities.isError is not True
-                capability_value = dict(capabilities.structuredContent or {})
+                assert capabilities.is_error is not True
+                capability_value = dict(capabilities.structured_content or {})
                 capability_value = dict(capability_value.get("result") or capability_value)
                 contract = capability_value["authoritative_contract"]
-                assert contract["schema"] == "sagasmith.authoritative-mcp/v1"
+                assert contract["schema"] == "sagasmith.authoritative-mcp/v2"
                 assert contract["transports"] == ["stdio", "streamable-http"]
                 assert contract["shared_handlers"] is True
                 created = await mcp.call_tool(
@@ -81,7 +81,7 @@ def test_real_streamable_http_and_sticky_gateway(tmp_path: Path) -> None:
                         "data": {"name": "HTTP Investigation", "idempotency_key": "http-coc"},
                     },
                 )
-                assert created.isError is not True
+                assert created.is_error is not True
             finally:
                 await mcp.stop()
 
@@ -148,8 +148,10 @@ def test_non_loopback_streamable_http_accepts_signed_auth_context(
     auth_context_secrets: list[str | None] = []
 
     class StubServer:
-        def run(self, *, transport: str) -> None:
+        def run(self, *, transport: str, **transport_options: object) -> None:
             transports.append(transport)
+            assert transport_options["host"] == "0.0.0.0"
+            assert transport_options["streamable_http_path"] == "/mcp"
 
     def create_stub(config: McpConfig) -> StubServer:
         auth_context_secrets.append(config.auth_context_secret)

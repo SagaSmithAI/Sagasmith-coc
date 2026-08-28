@@ -1,6 +1,24 @@
 # SagaSmith CoC MCP
 
-[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+## MCP 2026-07-28 与兼容模式
+
+同一组 handler 同时服务现代 MCP 2026-07-28 和迁移期 legacy 客户端。现代请求不依赖
+`initialize`、`Mcp-Session-Id` 或连接内 principal；Host 必须在每个请求的 `_meta` 中携带
+服务器目标明确、最长 15 分钟的 `sagasmith.auth-context/v2` 委托。MCP 会逐请求校验目标
+服务、操作、受众、请求者/资源所有者/行动角色、`room_turn_id`、`base_revision` 与过期时间，
+并用签名身份覆盖模型参数。浏览器 token 或其他 audience 的 token 不得透传。
+
+现代 `tools/list` 对同一授权范围保持完整、排序确定且可私有缓存（`ttlMs=300000`）；阶段、
+角色或工具调用的副作用不会改变目录。Host 可向模型提供稳定目录的阶段/任务子集，但 MCP
+在执行时仍重新校验权限、阶段和 revision。`exposure` 仅返回有 owner 和 TTL 的显式 opaque
+handle，作为目录导航，不授予权限。legacy `tools/list_changed` 与连接 exposure 只保留在明确
+兼容路径中，不再是长期安全边界。
+
+列表接口默认最多返回 50 项，硬上限 100，并返回 `next_cursor`；继续翻页必须原样复用该
+游标。预期业务错误返回 `isError: true` 与可操作提示，参数/协议错误保持 JSON-RPC 错误，
+未预期内部异常不会泄露细节。
+
+[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > 当前源码位于 `sagasmith-coc/packages/mcp`，并从 CoC 垂直 monorepo 与 Domain、Skills、Workbench 契约一起发布。
 
@@ -9,20 +27,21 @@ SagaSmithAI 的 Call of Cthulhu 7e 本地权威 MCP 服务。它把 `sagasmith-c
 ## 运行时边界
 
 - MCP 负责权威战役状态、权限、revision、幂等性、随机流收据和随机判定的原子提交。
-- 每个 MCP session 独立维护原生工具 exposure；Lobby、Play、Combat 策略还会在调用时再次校验。
-- Host 必须响应 `tools/list_changed` 并刷新原生 schema；没有固定工具全集、文本模拟或 `exposure_call` fallback。
+- 现代 `tools/list` 稳定且确定排序；Host 为模型选择 Lobby、Play 或 Combat 子集，MCP 在调用时再次校验策略。
+- legacy 客户端迁移期间可保留连接 exposure 与 `tools/list_changed`，但二者都不是授权边界。
 - Agent 负责解释来源和作出模组特有的语义决策；最终 Pack 保留这些决定的来源证据。
 
 原生能力加载流程：
 
 ```text
-exposure(open) -> exposure(search) -> exposure(set) -> native domain tool
+tools/list -> Host 按任务/阶段选择 -> native domain tool
+可选：exposure(open) -> exposure(search|set, exposure_handle)  # 仅目录导航
 ```
 
 Keeper 恢复接口由 `branch_query/change`、`snapshot_query/change` 和
 `state_revision` 组成。所有写操作都要求显式 revision/分支或历史游标守卫以及
 `idempotency_key`；checkout、restore、undo、redo 改变权威阶段后会触发
-`tools/list_changed`。Host 刷新列表后可重新加载并直接调用该阶段的合法原生工具。
+现代目录保持稳定，Host 只更新模型可见子集；legacy 适配器可继续发送 `tools/list_changed`。
 
 Snapshot 在公共协议中仍是可独立恢复的完整状态文档；底层 schema v8 仅把每个文档独立压缩为 `zlib-1` 记录，并校验压缩字节、文档 checksum 与节点身份。`snapshot_query/change`、branch checkout、undo/redo 和重启恢复都不依赖祖先链回放。
 
@@ -142,8 +161,8 @@ $env:SAGASMITH_COC_GATEWAY_PORT = "8768"
 sagasmith-coc-gateway
 ```
 
-浏览器不能提交 principal。Gateway 在服务端绑定身份，为每个浏览器/战役保留独立
-MCP session，并在 `tools/list_changed` 后刷新真实原生工具列表。
+浏览器不能提交权威 principal。Gateway 在服务端推导身份并可复用 HTTP 连接，但每个 MCP
+请求都独立授权；连接池不保存 principal 或 campaign 状态。
 
 状态默认位于 `.sagasmith-coc-mcp/`。主要配置项：
 

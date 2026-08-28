@@ -4,14 +4,14 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError
 
 from sagasmith_coc_mcp.config import McpConfig
 from sagasmith_coc_mcp.server import create_server
 
 
 async def call(server, name: str, arguments: dict):
-    _, result = await server.call_tool(name, arguments)
+    result = (await server.call_tool(name, arguments)).structured_content
     return result.get("result", result) if isinstance(result, dict) else result
 
 
@@ -78,16 +78,9 @@ def test_actor_permission_and_campaign_revoke_force_session_barriers(tmp_path: P
             phase="lobby",
         )
 
-        class Session:
-            notifications = 0
-
-            async def send_tool_list_changed(self) -> None:
-                self.notifications += 1
-
-        session = Session()
-        server._sessions["reader-session"] = session
         await server._refresh("reader-session", campaign["id"])
         before = exposure.authorization_fingerprint
+        catalog_before = [tool.name for tool in await server.list_tools()]
         await call(
             server,
             "campaign_change",
@@ -104,7 +97,7 @@ def test_actor_permission_and_campaign_revoke_force_session_barriers(tmp_path: P
         )
         assert await server._refresh("reader-session", campaign["id"]) is True
         assert exposure.authorization_fingerprint != before
-        assert session.notifications == 1
+        assert [tool.name for tool in await server.list_tools()] == catalog_before
         redacted = await call(
             server,
             "character_query",
@@ -127,7 +120,7 @@ def test_actor_permission_and_campaign_revoke_force_session_barriers(tmp_path: P
             },
         )
         assert await server._refresh("reader-session", campaign["id"]) is True
-        assert session.notifications == 2
+        assert [tool.name for tool in await server.list_tools()] == catalog_before
 
     asyncio.run(scenario())
 
@@ -148,9 +141,7 @@ def test_player_campaign_combat_and_chase_views_redact_keeper_state(tmp_path: Pa
                     "state": {
                         "game_phase": "play",
                         "random_stream": {"seed": "never disclose"},
-                        "investigation_checks": {
-                            "pending": {"private_evidence": "hidden clue"}
-                        },
+                        "investigation_checks": {"pending": {"private_evidence": "hidden clue"}},
                         "combat": {
                             "schema": "sagasmith.coc7e-combat.v1",
                             "active": True,

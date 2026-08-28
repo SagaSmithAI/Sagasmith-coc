@@ -17,12 +17,13 @@ async def call(server, name: str, arguments: dict):
             f"test-{arguments['action']}-{data.get('name') or data.get('template_id')}",
         )
         if "expected_campaign_revision" not in data:
-            _, campaign = await server.call_tool(
+            campaign_result = await server.call_tool(
                 "campaign_query",
                 {"action": "get", "campaign_id": arguments["campaign_id"]},
             )
+            campaign = campaign_result.structured_content
             data["expected_campaign_revision"] = campaign["revision"]
-    _, result = await server.call_tool(name, arguments)
+    result = (await server.call_tool(name, arguments)).structured_content
     return result
 
 

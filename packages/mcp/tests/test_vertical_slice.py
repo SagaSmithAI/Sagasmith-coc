@@ -31,12 +31,13 @@ async def call(server, name: str, arguments: dict):
             f"test-{arguments['action']}-{data.get('name') or data.get('template_id')}",
         )
         if "expected_campaign_revision" not in data:
-            _, campaign = await server.call_tool(
+            campaign_result = await server.call_tool(
                 "campaign_query",
                 {"action": "get", "campaign_id": arguments["campaign_id"]},
             )
+            campaign = campaign_result.structured_content
             data["expected_campaign_revision"] = campaign["revision"]
-    _, result = await server.call_tool(name, arguments)
+    result = (await server.call_tool(name, arguments)).structured_content
     if hasattr(result, "model_dump"):
         result = result.model_dump()
     return result.get("result", result) if isinstance(result, dict) else result
@@ -161,17 +162,23 @@ def test_coc_mcp_persists_campaign_modules_and_actor_knowledge(tmp_path) -> None
 
     async def scenario() -> tuple[str, str, str]:
         capabilities = await call(server, "server_capabilities", {})
-        assert capabilities["progressive_exposure"] is True
+        assert capabilities["progressive_exposure"] == "host-selection-with-guidance-handle"
         assert capabilities["authoritative_contract"] == {
-            "schema": "sagasmith.authoritative-mcp/v1",
+            "schema": "sagasmith.authoritative-mcp/v2",
             "transports": ["stdio", "streamable-http"],
             "shared_handlers": True,
-            "dynamic_tool_exposure": "session-scoped",
+            "protocols": {
+                "2026-07-28": "modern-request-scoped",
+                "legacy-initialize": "compatibility-adapter",
+            },
+            "tool_catalog": "stable-sorted-private-cache",
+            "exposure": "explicit-guidance-handle",
             "revision_model": "optimistic",
             "idempotency_model": "required-for-writes",
-            "authority_model": "server-owned",
+            "authority_model": "server-owned-request-validated",
             "error_model": "mcp-tool-error",
         }
+        assert capabilities["native_dynamic_tools_required"] is False
         campaign = await call(
             server,
             "campaign_change",
@@ -699,7 +706,7 @@ def test_module_draft_advance_resumes_an_interrupted_mechanical_first_pass(
             raise RuntimeError("simulated interruption after durable staging")
 
         monkeypatch.setattr(ModuleService, "preview_path", interrupt_preview)
-        with pytest.raises(Exception, match="simulated interruption"):
+        with pytest.raises(Exception, match="Error executing tool module_draft"):
             await call(
                 server,
                 "module_draft",
@@ -1073,7 +1080,7 @@ def test_module_draft_content_asset_and_actor_edits_enter_final_pack(tmp_path, m
 
         monkeypatch.setattr(CharacterService, "import_content_actor", capture_package_assets)
         monkeypatch.setattr(ModuleService, "bind_actor", interrupt_after_binding)
-        with pytest.raises(Exception, match="simulated interruption"):
+        with pytest.raises(Exception, match="Error executing tool content_pack"):
             await call(server, "content_pack", import_args)
         assert await call(
             server,
@@ -1084,7 +1091,7 @@ def test_module_draft_content_asset_and_actor_edits_enter_final_pack(tmp_path, m
             server,
             "character_query",
             {"action": "list", "campaign_id": target["id"]},
-        ) == {"characters": []}
+        ) == {"characters": [], "next_cursor": None}
         monkeypatch.setattr(ModuleService, "bind_actor", original_bind)
         imported = await call(server, "content_pack", import_args)
         assert imported_asset_maps
@@ -2550,13 +2557,14 @@ def test_exposure_registry_is_session_and_phase_scoped() -> None:
         registry.set_tools(bob, add=["module_change"])
 
 
-def test_native_tool_list_is_independent_per_session(tmp_path) -> None:
+def test_native_tool_list_is_stable_across_exposure_side_effects(tmp_path) -> None:
     config = McpConfig(tmp_path / "home", None, tmp_path / "coc", tmp_path / "modulegen")
 
     async def exercise() -> None:
         server = create_server(config)
-        server._request_session = lambda: ("mcp:alice", object())  # type: ignore[method-assign]
-        assert {tool.name for tool in await server.list_tools()} == set(CORE_TOOLS)
+        initial = [tool.name for tool in await server.list_tools()]
+        assert initial == sorted(initial)
+        assert set(CORE_TOOLS) < set(initial)
         exposure = server.exposure_registry.open(
             session_key="mcp:alice",
             principal_id="system:local",
@@ -2564,9 +2572,7 @@ def test_native_tool_list_is_independent_per_session(tmp_path) -> None:
             phase="lobby",
         )
         server.exposure_registry.set_tools(exposure, add=["campaign_change"])
-        assert "campaign_change" in {tool.name for tool in await server.list_tools()}
-        server._request_session = lambda: ("mcp:bob", object())  # type: ignore[method-assign]
-        assert {tool.name for tool in await server.list_tools()} == set(CORE_TOOLS)
+        assert [tool.name for tool in await server.list_tools()] == initial
 
     asyncio.run(exercise())
 
@@ -2606,7 +2612,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                     "exposure",
                     {"action": "set", "add_tool_ids": ["campaign_change"]},
                 )
-                assert not loaded.isError
+                assert not loaded.is_error
                 assert "campaign_change" in {
                     item.name for item in (await session.list_tools()).tools
                 }
@@ -2617,19 +2623,19 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "data": {"name": "Stdio", "idempotency_key": "stdio-create"},
                     },
                 )
-                assert not created.isError
+                assert not created.is_error
                 created_campaign = json.loads(created.content[0].text)
                 campaign_id = created_campaign["id"]
                 rebound = await session.call_tool(
                     "exposure",
                     {"action": "open", "campaign_id": campaign_id},
                 )
-                assert not rebound.isError
+                assert not rebound.is_error
                 loaded_module_draft = await session.call_tool(
                     "exposure",
                     {"action": "set", "add_tool_ids": ["module_draft"]},
                 )
-                assert not loaded_module_draft.isError
+                assert not loaded_module_draft.is_error
                 imported = await session.call_tool(
                     "module_draft",
                     {
@@ -2642,13 +2648,13 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-pdf-import",
                     },
                 )
-                assert not imported.isError
+                assert not imported.is_error
                 assert json.loads(imported.content[0].text)["job"]["state"] == "imported"
                 listed_skills = await session.call_tool(
                     "skill_query",
                     {"action": "list", "campaign_id": campaign_id},
                 )
-                assert not listed_skills.isError
+                assert not listed_skills.is_error
                 skill_ids = {
                     item["id"] for item in json.loads(listed_skills.content[0].text)["skills"]
                 }
@@ -2666,7 +2672,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "skill_id": "coc.full",
                     },
                 )
-                assert not loaded_skill.isError
+                assert not loaded_skill.is_error
                 skill_content = json.loads(loaded_skill.content[0].text)["content"]
                 assert "sagasmith_coc MCP" in skill_content
                 assert "sagasmith-coc --json" not in skill_content
@@ -2690,7 +2696,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         ],
                     },
                 )
-                assert not loaded.isError
+                assert not loaded.is_error
                 visible = {item.name for item in (await session.list_tools()).tools}
                 assert {
                     "module_draft",
@@ -2712,7 +2718,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-draft",
                     },
                 )
-                assert not staged.isError
+                assert not staged.is_error
                 investigator_result = await session.call_tool(
                     "character_change",
                     {
@@ -2730,7 +2736,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         },
                     },
                 )
-                assert not investigator_result.isError
+                assert not investigator_result.is_error
                 investigator = json.loads(investigator_result.content[0].text)
                 development_loaded = await session.call_tool(
                     "exposure",
@@ -2739,12 +2745,12 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "add_tool_ids": ["development_query", "development_settle"],
                     },
                 )
-                assert not development_loaded.isError
+                assert not development_loaded.is_error
                 pending_development = await session.call_tool(
                     "development_query",
                     {"campaign_id": campaign_id, "actor_id": investigator["id"]},
                 )
-                assert not pending_development.isError
+                assert not pending_development.is_error
                 pending_development_value = json.loads(pending_development.content[0].text)
                 settled_development = await session.call_tool(
                     "development_settle",
@@ -2759,7 +2765,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-development",
                     },
                 )
-                assert not settled_development.isError
+                assert not settled_development.is_error
                 settled_development_value = json.loads(settled_development.content[0].text)
                 investigator["revision"] = settled_development_value["character_revision"]
                 cultist_result = await session.call_tool(
@@ -2778,7 +2784,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         },
                     },
                 )
-                assert not cultist_result.isError
+                assert not cultist_result.is_error
                 cultist = json.loads(cultist_result.content[0].text)
                 campaign = await session.call_tool(
                     "campaign_query",
@@ -2804,7 +2810,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-snapshot",
                     },
                 )
-                assert not saved.isError
+                assert not saved.is_error
                 played = await session.call_tool(
                     "campaign_change",
                     {
@@ -2816,7 +2822,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         },
                     },
                 )
-                assert not played.isError
+                assert not played.is_error
                 play_value = json.loads(played.content[0].text)
                 play_tools = {item.name for item in (await session.list_tools()).tools}
                 assert "module_draft" not in play_tools
@@ -2838,7 +2844,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         ],
                     },
                 )
-                assert not continuity_loaded.isError
+                assert not continuity_loaded.is_error
                 group_luck = await session.call_tool(
                     "group_luck_query",
                     {
@@ -2846,7 +2852,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "participant_actor_ids": [investigator["id"], cultist["id"]],
                     },
                 )
-                assert not group_luck.isError
+                assert not group_luck.is_error
                 group_luck_value = json.loads(group_luck.content[0].text)
                 group_luck_result = await session.call_tool(
                     "group_luck_check",
@@ -2860,7 +2866,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-group-luck",
                     },
                 )
-                assert not group_luck_result.isError
+                assert not group_luck_result.is_error
                 play_value["revision"] = json.loads(group_luck_result.content[0].text)[
                     "campaign_revision"
                 ]
@@ -2881,13 +2887,13 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-investigation-open",
                     },
                 )
-                assert not opened_check_result.isError
+                assert not opened_check_result.is_error
                 opened_check = json.loads(opened_check_result.content[0].text)
                 queried_check = await session.call_tool(
                     "investigation_query",
                     {"campaign_id": campaign_id, "actor_id": investigator["id"]},
                 )
-                assert not queried_check.isError
+                assert not queried_check.is_error
                 assert (
                     json.loads(queried_check.content[0].text)["pending"]["id"]
                     == (opened_check["pending"]["id"])
@@ -2904,7 +2910,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-investigation-settle",
                     },
                 )
-                assert not settled_check_result.isError
+                assert not settled_check_result.is_error
                 settled_check = json.loads(settled_check_result.content[0].text)
                 play_value["revision"] = settled_check["campaign_revision"]
                 investigator["revision"] = settled_check["character_revision"]
@@ -2920,18 +2926,18 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-arrival-event",
                     },
                 )
-                assert not recorded.isError
+                assert not recorded.is_error
                 context = await session.call_tool(
                     "continuity_context",
                     {"campaign_id": campaign_id, "query": "rain-soaked house"},
                 )
-                assert not context.isError
+                assert not context.is_error
                 assert len(json.loads(context.content[0].text)["events"]) == 1
                 combat_loaded = await session.call_tool(
                     "exposure",
                     {"action": "set", "add_tool_ids": ["combat_start"]},
                 )
-                assert not combat_loaded.isError
+                assert not combat_loaded.is_error
                 started_result = await session.call_tool(
                     "combat_start",
                     {
@@ -2958,7 +2964,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-combat-start",
                     },
                 )
-                assert not started_result.isError
+                assert not started_result.is_error
                 started = json.loads(started_result.content[0].text)
                 combat_tools = {item.name for item in (await session.list_tools()).tools}
                 assert "combat_start" not in combat_tools
@@ -2975,12 +2981,12 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "add_tool_ids": ["combat_query", "combat_action", "combat_end"],
                     },
                 )
-                assert not combat_loaded.isError
+                assert not combat_loaded.is_error
                 status = await session.call_tool(
                     "combat_query",
                     {"campaign_id": campaign_id},
                 )
-                assert not status.isError
+                assert not status.is_error
                 assert json.loads(status.content[0].text)["phase"] == "combat"
                 ended_result = await session.call_tool(
                     "combat_end",
@@ -2992,7 +2998,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-combat-end",
                     },
                 )
-                assert not ended_result.isError
+                assert not ended_result.is_error
                 ended = json.loads(ended_result.content[0].text)
                 assert ended["phase"] == "play"
                 assert "combat_end" not in {
@@ -3009,7 +3015,7 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                         "idempotency_key": "stdio-restore",
                     },
                 )
-                assert not restored.isError
+                assert not restored.is_error
                 phase = await session.call_tool("game_phase", {"campaign_id": campaign_id})
                 phase_payload = json.loads(phase.content[0].text)
                 assert phase_payload["phase"] == "lobby"
@@ -3021,12 +3027,12 @@ def test_stdio_client_can_discover_load_and_call(tmp_path) -> None:
                     "exposure",
                     {"action": "set", "add_tool_ids": ["module_draft"]},
                 )
-                assert not reloaded.isError
+                assert not reloaded.is_error
                 resumed = await session.call_tool(
                     "module_draft",
                     {"action": "get", "campaign_id": campaign_id},
                 )
-                assert not resumed.isError
+                assert not resumed.is_error
                 assert json.loads(resumed.content[0].text)["jobs"]
 
     asyncio.run(exercise())
@@ -3042,12 +3048,9 @@ def test_only_one_exposure_facade_is_registered(tmp_path) -> None:
 
 def test_tools_advertise_agent_domain_context_contract(tmp_path) -> None:
     config = McpConfig(tmp_path / "home", None, tmp_path / "coc", tmp_path / "modulegen")
-    tools = {
-        tool.name: tool for tool in create_server(config)._tool_manager.list_tools()
-    }
+    tools = {tool.name: tool for tool in create_server(config)._tool_manager.list_tools()}
 
     assert all(
-        tool.meta.get("sagasmith_domain_context") == "sagasmith-coc"
-        for tool in tools.values()
+        tool.meta.get("sagasmith_domain_context") == "sagasmith-coc" for tool in tools.values()
     )
     assert tools["campaign_query"].meta.get("sagasmith_context_sync") is True
