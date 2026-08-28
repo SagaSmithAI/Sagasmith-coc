@@ -882,7 +882,7 @@ class ConversationStore:
                         "commitments": [],
                     },
                     "context": deepcopy(context),
-                    }
+                }
             session = {
                 "schema_version": NPC_CONVERSATION_SCHEMA_VERSION,
                 "contract": NPC_CONVERSATION_CONTRACT,
@@ -1023,11 +1023,9 @@ class ConversationStore:
             for resolution_id in resolved_ids
         }
         for candidate in session.get("memory_candidates") or []:
-            if (
-                str(candidate.get("source_activation_id") or "")
-                in resolved_activation_ids
-                and not candidate.get("source_event_id")
-            ):
+            if str(
+                candidate.get("source_activation_id") or ""
+            ) in resolved_activation_ids and not candidate.get("source_event_id"):
                 candidate["source_event_id"] = saved["event_id"]
         activations = []
         for actor_id in audience_facts["response_actor_ids"]:
@@ -1338,9 +1336,7 @@ class ConversationStore:
                 "status": "publication_ready" if publication else "resolution_required",
                 "publication": publication,
                 "resolution_requests": deepcopy(created_resolutions),
-                "memory_candidate_ids": [
-                    str(item["candidate_id"]) for item in proposed_candidates
-                ],
+                "memory_candidate_ids": [str(item["candidate_id"]) for item in proposed_candidates],
             },
         )
 

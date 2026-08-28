@@ -1,4 +1,4 @@
-"""Ephemeral, session-scoped native MCP tool exposure."""
+"""Ephemeral catalog-guidance handles with a legacy session adapter."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
+from mcp.server.mcpserver.exceptions import ToolError
 from sagasmith_core.access import LOCAL_SYSTEM_PRINCIPAL_ID
 from sagasmith_core.clock import operational_utcnow
 
 from .tool_profiles import CORE_TOOLS, policy_for_tool, tools_for_phase
 
 
-class ExposureError(ValueError):
+class ExposureError(ToolError):
     """Raised when a session attempts to expose or call an unavailable tool."""
 
 
@@ -100,6 +101,13 @@ class ExposureRegistry:
         exposure = self._by_id.get(exposure_id) if exposure_id else None
         return self.touch(exposure) if exposure else None
 
+    def get(self, exposure_id: str) -> Exposure | None:
+        """Resolve a server-issued opaque name; callers still need authorization."""
+
+        self._prune()
+        exposure = self._by_id.get(str(exposure_id).strip())
+        return self.touch(exposure) if exposure else None
+
     def active_items(self, campaign_id: str | None = None) -> tuple[tuple[str, Exposure], ...]:
         self._prune()
         return tuple(
@@ -179,7 +187,7 @@ class ExposureRegistry:
     def require_tool(self, exposure: Exposure, tool_id: str) -> None:
         if tool_id not in CORE_TOOLS and tool_id not in exposure.loaded_tools:
             raise ExposureError(
-                f"Tool {tool_id!r} is not exposed for this session. "
+                f"Tool {tool_id!r} is not exposed for this compatibility session. "
                 "Use exposure(action='search') and exposure(action='set') first."
             )
         self.touch(exposure)

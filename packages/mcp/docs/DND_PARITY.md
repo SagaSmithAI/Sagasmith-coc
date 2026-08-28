@@ -8,15 +8,15 @@
 
 ## 当前结论
 
-CoC 当前公开 50 个原生工具。`npc_conversation_transport` 是经过 Host token
+CoC 当前公开 51 个原生工具。`npc_conversation_transport` 是经过 Host token
 鉴权且永不出现在 `tools/list` 的私有 transport，不是额外的公开工具，也没有
 旧公开 worker 兼容入口。Agent 根据 server capability 私下调用 transport，
 Director 只收到 server 验证后的 publication，看不到 capsule 或 raw proposal。
 
 | 能力域 | 当前 CoC 协议 | 当前证据 |
 | --- | --- | --- |
-| 原生动态工具 | `exposure`、session-aware `tools/list`、`tools/list_changed`、调用时二次鉴权 | 公共 facade 与真实 stdio 覆盖 Lobby → Play → Combat → Play；phase、role 或授权变化后原生列表和下一次调用同步刷新 |
-| Host 上下文 | domain、campaign、principal fingerprint、authorization fingerprint、role、audience、branch 共同形成 `context_epoch` | campaign revoke 和 actor-private 降级都会改变 epoch，向目标 session 发出 barrier；下一次私有读取失败 |
+| 确定目录与 Host 选择 | modern `tools/list` 对同一 authorization 完整、排序且可缓存；`exposure` handle 只提供导航；legacy 连接刷新仅留在兼容适配器 | 公共 facade 与真实 stdio 覆盖 Lobby → Play → Combat → Play；Host 按 phase/role 选择模型可见子集，服务端在每次调用时重新鉴权 |
+| 每请求 Host 上下文 | domain、campaign、principal fingerprint、authorization fingerprint、role、audience、branch、room turn 与 base revision 由签名上下文绑定 | campaign revoke 和 actor-private 降级立即使下一次私有读取失败；modern 路径不依赖 transport session 或连接 barrier |
 | 角色生命周期 | `character_change(create/instantiate/update)` | create/instantiate 原子写 actor、template lineage、初始 grant、幂等 receipt 和 lifecycle revision；update 具有角色 revision、幂等、undo/redo |
 | 快照与分支 | snapshot schema 9、branch checkout、state revision | actor 与 actor grants 一同 capture/restore；公共测试覆盖 restart、snapshot/branch、create/update undo/redo 和同 ID 恢复 |
 | 访问与受众 | campaign/actor grant、ActorKnowledge、事件、memory、`continuity_context` | Keeper、玩家、角色私有知识和 group/public 投影在调用边界复核；revoke 不只改变未来 ACL，也使旧宿主上下文失效 |
@@ -25,7 +25,7 @@ Director 只收到 server 验证后的 publication，看不到 capsule 或 raw p
 | SAN、HP 与长期状态 | SAN loss/bout、伤害、护甲、重伤、濒死、治疗、成长、Luck、年龄、tome/spell study | 即时机械转换由系统引擎拥有；跨场景时机仍由来源和 Keeper 明确提供 |
 | Combat / Chase | Grid 与 Agent 两种 Combat 空间模式；人物与车辆 Chase 卡 | 公共回归覆盖响应、攻击、伤害、Combat/Chase 互斥、Grid/Agent、重启；私有两路线分别覆盖 Agent Combat 与 Chase → Grid Combat |
 | NPC conversation | 公开 `npc_conversation` + 私有鉴权且不列出的 `npc_conversation_transport`；conversation v3、proposal v4 | 真实 Agent + 实际 CoC stdio MCP 回归验证 capability、隐藏 transport、私有 capsule、publication；公共 facade 覆盖 close/abort、阶段互斥和 stale authority |
-| Skills | 50 个公开工具、conversation v3/proposal v4、Host 私有 transport | `SagaSmith-coc-skills` validator 强制当前工具集合和关键流程；不含公开 worker 契约 |
+| Skills | 51 个公开工具、conversation v3/proposal v4、Host 私有 transport | `SagaSmith-coc-skills` validator 强制当前工具集合和关键流程；不含公开 worker 契约 |
 
 ## 私有来源与真实 Host 证据
 
@@ -60,6 +60,6 @@ Director 只收到 server 验证后的 publication，看不到 capsule 或 raw p
 
 ## 完成标准
 
-完成状态必须同时具备公共 facade、真实 native tool refresh 和至少一种真实 Host 或
+完成状态必须同时具备公共 facade、确定且可缓存的工具目录、Host 侧模型工具选择和至少一种真实 Host 或
 回测证据。私有模组只覆盖来源实际要求的路径；未出现的来源事实必须记录为机器可读
 exclusion，不能为了覆盖率编造。

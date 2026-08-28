@@ -5,9 +5,7 @@ from pathlib import Path
 
 from sagasmith_coc_mcp.tool_profiles import CORE_TOOLS, PHASE_TOOLS
 
-REFERENCE = (
-    Path(__file__).parents[3] / "skills" / "full" / "references" / "mcp-contract.md"
-)
+REFERENCE = Path(__file__).parents[3] / "skills" / "full" / "references" / "mcp-contract.md"
 
 
 def _section(reference: str, heading: str, next_heading: str) -> str:

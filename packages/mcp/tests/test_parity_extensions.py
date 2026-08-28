@@ -17,12 +17,13 @@ async def call(server, name: str, arguments: dict):
             f"test-{arguments['action']}-{data.get('name') or data.get('template_id')}",
         )
         if "expected_campaign_revision" not in data:
-            _, campaign = await server.call_tool(
+            campaign_result = await server.call_tool(
                 "campaign_query",
                 {"action": "get", "campaign_id": arguments["campaign_id"]},
             )
+            campaign = campaign_result.structured_content
             data["expected_campaign_revision"] = campaign["revision"]
-    _, result = await server.call_tool(name, arguments)
+    result = (await server.call_tool(name, arguments)).structured_content
     if hasattr(result, "model_dump"):
         result = result.model_dump()
     return result.get("result", result) if isinstance(result, dict) else result
@@ -385,12 +386,12 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
             {
                 "action": "create",
                 "campaign_id": campaign_id,
-                    "data": {
-                        "name": "Morgan",
-                        "character_type": "investigator",
-                        "expected_campaign_revision": campaign["revision"],
-                        "idempotency_key": "create-morgan",
-                    },
+                "data": {
+                    "name": "Morgan",
+                    "character_type": "investigator",
+                    "expected_campaign_revision": campaign["revision"],
+                    "idempotency_key": "create-morgan",
+                },
             },
         )
         npc = await call(
@@ -399,13 +400,13 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
             {
                 "action": "create",
                 "campaign_id": campaign_id,
-                    "data": {
-                        "name": "Harbormaster",
-                        "character_type": "npc",
-                        "summary": "Knows when the lighthouse boat departed.",
-                        "expected_campaign_revision": campaign["revision"],
-                        "idempotency_key": "create-harbormaster",
-                    },
+                "data": {
+                    "name": "Harbormaster",
+                    "character_type": "npc",
+                    "summary": "Knows when the lighthouse boat departed.",
+                    "expected_campaign_revision": campaign["revision"],
+                    "idempotency_key": "create-harbormaster",
+                },
             },
         )
         await call(
@@ -645,9 +646,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                                 "text": "Just before dusk.",
                                 "speech_act": "answer",
                                 "truth_posture": "supported",
-                                "basis_refs": [
-                                    claimed["inbox"][0]["event_id"]
-                                ],
+                                "basis_refs": [claimed["inbox"][0]["event_id"]],
                                 "targets": [investigator["id"]],
                                 "language": "English",
                                 "delivery": "quietly",
@@ -692,9 +691,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                         "basis_refs": [],
                         "reason": "The reply is spoken clearly in shared English.",
                     },
-                    "expected_conversation_revision": submitted[
-                        "conversation_revision"
-                    ],
+                    "expected_conversation_revision": submitted["conversation_revision"],
                     "idempotency_key": "publish",
                 },
             },
@@ -708,9 +705,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                 "data": {"conversation_id": opened["conversation_id"]},
             },
         )
-        accepted_candidate_ids = [
-            item["candidate_id"] for item in status["memory_candidates"]
-        ]
+        accepted_candidate_ids = [item["candidate_id"] for item in status["memory_candidates"]]
         assert len(accepted_candidate_ids) == 2
         closed = await call(
             server,
@@ -721,9 +716,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                 "data": {
                     "conversation_id": opened["conversation_id"],
                     "accepted_candidate_ids": accepted_candidate_ids,
-                    "expected_conversation_revision": published[
-                        "conversation_revision"
-                    ],
+                    "expected_conversation_revision": published["conversation_revision"],
                     "idempotency_key": "close",
                 },
             },
@@ -737,12 +730,8 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
         conversation_event = next(
             item for item in events["events"] if item["event_type"] == "npc_conversation"
         )
-        assert conversation_event["payload"]["transcript"][-1]["content"] == (
-            "Just before dusk."
-        )
-        assert conversation_event["payload"]["conversation_id"] == opened[
-            "conversation_id"
-        ]
+        assert conversation_event["payload"]["transcript"][-1]["content"] == ("Just before dusk.")
+        assert conversation_event["payload"]["conversation_id"] == opened["conversation_id"]
         assert conversation_event["retrieval_text"].endswith("Just before dusk.")
         investigator_knowledge = await call(
             server,

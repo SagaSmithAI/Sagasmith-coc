@@ -14,6 +14,7 @@ members = ["packages/domain", "packages/mcp"]
 [tool.pytest.ini_options]
 testpaths = ["packages/domain/tests", "packages/mcp/tests"]
 addopts = "-q"
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100

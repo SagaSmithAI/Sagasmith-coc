@@ -18,12 +18,13 @@ async def call(server, name: str, arguments: dict):
             f"test-{arguments['action']}-{data.get('name') or data.get('template_id')}",
         )
         if "expected_campaign_revision" not in data:
-            _, campaign = await server.call_tool(
+            campaign_result = await server.call_tool(
                 "campaign_query",
                 {"action": "get", "campaign_id": arguments["campaign_id"]},
             )
+            campaign = campaign_result.structured_content
             data["expected_campaign_revision"] = campaign["revision"]
-    _, result = await server.call_tool(name, arguments)
+    result = (await server.call_tool(name, arguments)).structured_content
     return result
 
 
@@ -296,9 +297,7 @@ def test_luck_choice_is_persisted_spent_and_followed_by_explicit_continuity(
                 "principal_id": "player:alice",
             },
         )
-        assert context["actor_knowledge"][0]["knowledge_key"] == (
-            "salt-water-under-locked-door"
-        )
+        assert context["actor_knowledge"][0]["knowledge_key"] == ("salt-water-under-locked-door")
         return campaign["id"], actor["id"], settled["receipt"]["id"]
 
     campaign_id, actor_id, receipt_id = asyncio.run(exercise())
@@ -372,9 +371,7 @@ def test_failed_push_persists_justification_and_keeper_consequence(tmp_path: Pat
         assert pushed["pending"]["roll"]["total"] == 89
         assert pushed["pending"]["outcome"]["failed_pushed_roll"] is True
         assert pushed["pending"]["outcome"]["luck_options"] == {}
-        assert pushed["pending"]["decision"]["failure_consequence"].startswith(
-            "The fragile radio"
-        )
+        assert pushed["pending"]["decision"]["failure_consequence"].startswith("The fragile radio")
         with pytest.raises(Exception, match="cannot spend Luck"):
             await call(
                 server,
@@ -507,9 +504,7 @@ def test_combined_check_uses_one_roll_and_marks_each_successful_skill(tmp_path: 
         assert opened["random_stream_receipt"]["draw_count"] == 2
         assert opened["pending"]["check_kind"] == "combined"
         assert opened["pending"]["outcome"]["success"] is False
-        assert opened["pending"]["outcome"]["luck_options"] == {
-            "meet_requirement": 5
-        }
+        assert opened["pending"]["outcome"]["luck_options"] == {"meet_requirement": 5}
         adjusted = await call(
             server,
             "investigation_check",
@@ -525,9 +520,7 @@ def test_combined_check_uses_one_roll_and_marks_each_successful_skill(tmp_path: 
             },
         )
         assert adjusted["pending"]["outcome"]["success"] is True
-        assert adjusted["pending"]["outcome"]["development_eligible_skills"] == [
-            "Spot Hidden"
-        ]
+        assert adjusted["pending"]["outcome"]["development_eligible_skills"] == ["Spot Hidden"]
         settled = await call(
             server,
             "investigation_check",
