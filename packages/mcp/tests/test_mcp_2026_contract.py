@@ -30,7 +30,17 @@ def config(tmp_path: Path) -> McpConfig:
     )
 
 
-def delegated_meta(*, nonce: str, target_service: str = SERVICE) -> dict[str, object]:
+def delegated_meta(
+    *,
+    nonce: str,
+    target_service: str = SERVICE,
+    requester_principal: str = "discord:user:authorized",
+    resource_owner_principal: str = "discord:user:authorized",
+    acting_host_principal: str = "workload:sagasmith-agent",
+    allowed_operations: list[str] | None = None,
+    campaign_id: str = "campaign:scope",
+    base_revision: int = 0,
+) -> dict[str, object]:
     return {
         AUTH_CONTEXT_META_KEY: sign_delegated_auth_context(
             secret=SECRET,
@@ -38,16 +48,16 @@ def delegated_meta(*, nonce: str, target_service: str = SERVICE) -> dict[str, ob
             target_service=target_service,
             caller_principal="workload:hosted-agent",
             workload_identity="deployment:sagasmith-agent/test",
-            requester_principal="discord:user:authorized",
-            resource_owner_principal="discord:user:authorized",
-            acting_host_principal="host:keeper",
+            requester_principal=requester_principal,
+            resource_owner_principal=resource_owner_principal,
+            acting_host_principal=acting_host_principal,
             acting_character_id="character:investigator",
             authorized_audience=SERVICE,
-            allowed_operations=["campaign_query"],
+            allowed_operations=allowed_operations or ["campaign_query"],
             conversation_principal="discord:room:test",
-            campaign_id="campaign:scope",
+            campaign_id=campaign_id,
             room_turn_id="turn:modern-contract",
-            base_revision=0,
+            base_revision=base_revision,
             nonce=nonce,
         )
     }
@@ -91,6 +101,7 @@ def test_modern_delegation_overrides_model_identity_and_binds_audience(tmp_path:
         receipt = result.content[0].meta["sagasmith_auth_context_receipt"]
         assert receipt["schema"] == AUTH_CONTEXT_DELEGATION_SCHEMA
         assert receipt["requester_principal"] == "discord:user:authorized"
+        assert receipt["acting_host_principal"] == "workload:sagasmith-agent"
         assert receipt["target_service"] == SERVICE
         assert receipt["authorized_audience"] == SERVICE
         assert receipt["room_turn_id"] == "turn:modern-contract"
@@ -116,6 +127,94 @@ def test_modern_delegation_overrides_model_identity_and_binds_audience(tmp_path:
                 "campaign_query",
                 {"action": "list", "base_revision": 1},
                 stale_revision,
+            )
+
+    asyncio.run(exercise())
+
+
+def test_modern_requester_authorizes_while_acting_host_is_audited(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        server._auth_context_secret = None
+        allowed_campaign = (
+            await server.call_tool(
+                "campaign_change",
+                {
+                    "action": "create",
+                    "principal_id": "discord:user:owner",
+                    "data": {
+                        "name": "Requester-visible case",
+                        "idempotency_key": "create-requester-visible",
+                    },
+                },
+            )
+        ).structured_content
+        await server.call_tool(
+            "campaign_change",
+            {
+                "action": "grant_campaign",
+                "campaign_id": allowed_campaign["id"],
+                "principal_id": "discord:user:owner",
+                "data": {
+                    "target_principal_id": "discord:user:player",
+                    "role": "player",
+                },
+            },
+        )
+        denied_campaign = (
+            await server.call_tool(
+                "campaign_change",
+                {
+                    "action": "create",
+                    "principal_id": "discord:user:owner",
+                    "data": {
+                        "name": "Owner-only case",
+                        "idempotency_key": "create-owner-only",
+                    },
+                },
+            )
+        ).structured_content
+        server._auth_context_secret = SECRET
+        accepted = await server.call_tool(
+            "campaign_query",
+            {
+                "action": "get",
+                "campaign_id": allowed_campaign["id"],
+                "principal_id": "discord:user:owner",
+            },
+            modern_context(
+                server,
+                delegated_meta(
+                    nonce="requester-allowed",
+                    requester_principal="discord:user:player",
+                    resource_owner_principal="discord:user:owner",
+                    campaign_id=allowed_campaign["id"],
+                ),
+            ),
+        )
+        assert accepted.structured_content["id"] == allowed_campaign["id"]
+        receipt = accepted.content[0].meta["sagasmith_auth_context_receipt"]
+        assert receipt["requester_principal"] == "discord:user:player"
+        assert receipt["resource_owner_principal"] == "discord:user:owner"
+        assert receipt["acting_host_principal"] == "workload:sagasmith-agent"
+
+        with pytest.raises(ToolError, match="cannot access campaign"):
+            await server.call_tool(
+                "campaign_query",
+                {
+                    "action": "get",
+                    "campaign_id": denied_campaign["id"],
+                    "principal_id": "discord:user:owner",
+                },
+                modern_context(
+                    server,
+                    delegated_meta(
+                        nonce="requester-denied",
+                        requester_principal="discord:user:player",
+                        resource_owner_principal="discord:user:owner",
+                        campaign_id=denied_campaign["id"],
+                    ),
+                ),
             )
 
     asyncio.run(exercise())
