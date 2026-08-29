@@ -32,6 +32,14 @@ Use continuity_context with:
 Non-DM callers are forced to player projection. Never reuse a DM context bundle
 for player narration.
 
+For a long-running investigator or NPC, use `purpose="actor_memory"` to retrieve
+identity, motivational, semantic ActorKnowledge, and episodic participant-event
+tracks under one deterministic budget. Query recall searches the whole current
+branch, not only the recent window. Player reads are filtered at the Core query
+entrance by both knowledge disclosure and event audience; Keeper-only events do
+not become player-visible merely because an investigator participated. The
+projection never chooses an investigator's intent.
+
 ## Commit one realized outcome
 
 Prefer memory_change(action="commit") after an investigation or scene outcome
@@ -105,7 +113,10 @@ authenticated dispatcher receives only its server-built private capsule and
 activation reference; the Director receives only the server-derived
 publication. Close commits the
 approved public transcript and accepted durable deltas, while abort discards
-the private draft.
+the private draft. Grounded, deceptive, and uncertain factual speech cites
+actor-owned basis refs; nonfactual speech is explicit. A freshness replacement
+preserves the original stimulus cursor and reason while invalidating stale
+private work.
 
 ## Restore
 

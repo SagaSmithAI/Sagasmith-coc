@@ -12,6 +12,7 @@ BOUNDED_EVALUATION_PURPOSES = frozenset(
         "faction_turn",
         "source_interpretation",
         "bounded_ruling",
+        "campaign_expansion",
     }
 )
 BOUNDED_OUTPUT_CONTRACTS = {
@@ -20,6 +21,7 @@ BOUNDED_OUTPUT_CONTRACTS = {
     "faction_turn": "faction-turn-proposal.v1",
     "source_interpretation": "source-interpretation-proposal.v1",
     "bounded_ruling": "bounded-ruling-proposal.v1",
+    "campaign_expansion": "campaign-expansion-proposal.v1",
 }
 CLAIM_POSTURES = frozenset({"supported", "inference", "uncertain", "opinion", "nonfactual"})
 RESOLUTION_KINDS = frozenset(
@@ -337,6 +339,46 @@ def normalize_bounded_proposal(purpose: str, value: Any) -> dict[str, Any]:
             "ambiguities": ambiguities,
             "requires_dm_review": requires_dm_review,
         }
+    elif purpose == "campaign_expansion":
+        data = _base(
+            value,
+            purpose,
+            {
+                "campaign_line_id",
+                "title",
+                "source_markdown",
+                "generation_basis_refs",
+                "claims",
+                "unresolved",
+                "requires_keeper_review",
+                "decision_summary",
+            },
+        )
+        source_markdown = _text(
+            data.get("source_markdown"), "source_markdown", required=True, maximum=50_000
+        )
+        if "sagasmith-runtime-manifest" not in source_markdown:
+            raise ValueError("campaign_expansion requires a sagasmith-runtime-manifest")
+        generation_basis_refs = _strings(data.get("generation_basis_refs"), "generation_basis_refs")
+        if not generation_basis_refs:
+            raise ValueError("campaign_expansion requires generation_basis_refs")
+        if data.get("requires_keeper_review") is not True:
+            raise ValueError("campaign_expansion requires Keeper review")
+        result = {
+            **common,
+            "campaign_line_id": _text(
+                data.get("campaign_line_id"), "campaign_line_id", required=True, maximum=200
+            ),
+            "title": _text(data.get("title"), "title", required=True, maximum=300),
+            "source_markdown": source_markdown,
+            "generation_basis_refs": generation_basis_refs,
+            "claims": _claims(data.get("claims")),
+            "unresolved": _strings(data.get("unresolved"), "unresolved", maximum=1_000),
+            "requires_keeper_review": True,
+            "decision_summary": _text(
+                data.get("decision_summary"), "decision_summary", maximum=500
+            ),
+        }
     else:
         data = _base(
             value,
@@ -379,6 +421,7 @@ def validate_bounded_proposal_refs(
         for action in proposal.get("proposed_actions") or []
         for ref in dict(action).get("basis_refs") or []
     )
+    cited_basis.update(str(ref) for ref in proposal.get("generation_basis_refs") or [])
     if unknown := sorted(cited_basis - allowed_basis_refs):
         raise ValueError(f"proposal cites basis refs outside its bundle: {unknown}")
     claim_basis = {
@@ -402,6 +445,10 @@ def validate_bounded_proposal_refs(
         raise ValueError("actor proposal does not match its signed subject")
     if purpose == "faction_turn" and subject_ref != f"faction:{proposal['faction_id']}":
         raise ValueError("faction proposal does not match its signed subject")
+    if purpose == "campaign_expansion" and subject_ref != (
+        f"campaign_line:{proposal['campaign_line_id']}"
+    ):
+        raise ValueError("campaign expansion proposal does not match its signed campaign line")
     allowed_actor_ids = {
         ref.removeprefix("actor:") for ref in allowed_target_refs if ref.startswith("actor:")
     }

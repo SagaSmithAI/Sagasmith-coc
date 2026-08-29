@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sagasmith.ai/contracts/coc/actor-memory-context.v1.schema.json",
+  "title": "SagaSmith CoC actor memory context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity", "motivational", "semantic", "episodic", "diagnostics"],
+  "properties": {
+    "identity": {"$ref": "#/$defs/items"},
+    "motivational": {"$ref": "#/$defs/items"},
+    "semantic": {"$ref": "#/$defs/items"},
+    "episodic": {"$ref": "#/$defs/items"},
+    "diagnostics": {"type": "object"}
+  },
+  "$defs": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["basis_ref", "source", "content", "refs", "record", "score"],
+        "properties": {
+          "basis_ref": {"type": "string", "minLength": 1},
+          "source": {"enum": ["actor_state", "actor_knowledge", "event"]},
+          "content": {"type": "string"},
+          "refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "record": {"type": "object"},
+          "score": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

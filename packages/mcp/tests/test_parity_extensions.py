@@ -602,7 +602,35 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                 },
             },
         )
-        activation = ingested["activations"][0]
+        original_activation = ingested["activations"][0]
+        await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "actor_id": npc["id"],
+                "data": {
+                    "knowledge_key": "fresh-lantern-signal",
+                    "proposition": "A new lantern signal appeared after the question.",
+                },
+                "idempotency_key": "fresh-lantern-signal",
+            },
+        )
+        refreshed_pending = await call(
+            server,
+            "npc_conversation",
+            {
+                "action": "get",
+                "campaign_id": campaign_id,
+                "data": {"conversation_id": opened["conversation_id"]},
+            },
+        )
+        activation = refreshed_pending["activations"][0]
+        assert activation["replacement_for"] == original_activation["activation_ref"]
+        assert activation["reason"] == original_activation["reason"]
+        assert activation["from_cursor"] == original_activation["from_cursor"]
+        assert activation["to_cursor"] == original_activation["to_cursor"]
         claimed = await call(
             server,
             "npc_conversation_transport",
@@ -612,7 +640,9 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                 "conversation_id": opened["conversation_id"],
                 "payload": {
                     "activation_ref": activation["activation_ref"],
-                    "expected_conversation_revision": ingested["conversation_revision"],
+                    "expected_conversation_revision": refreshed_pending[
+                        "conversation_revision"
+                    ],
                     "idempotency_key": "claim",
                 },
                 "host_token": "test-host-token",
@@ -631,7 +661,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                     "expected_conversation_revision": claimed["conversation_revision"],
                     "idempotency_key": "submit",
                     "proposal": {
-                        "schema_version": 4,
+                        "schema_version": 5,
                         "conversation_id": opened["conversation_id"],
                         "activation_id": claimed["activation_id"],
                         "actor_runtime_id": claimed["actor_runtime_id"],
@@ -644,6 +674,7 @@ def test_bounded_render_and_isolated_npc_conversation_settle_public_state(
                         "utterance_segments": [
                             {
                                 "text": "Just before dusk.",
+                                "content_mode": "grounded",
                                 "speech_act": "answer",
                                 "truth_posture": "supported",
                                 "basis_refs": [claimed["inbox"][0]["event_id"]],

@@ -12,6 +12,9 @@ Read [workflow.md](references/workflow.md) before starting or editing a draft.
 Read [system-profile.md](references/system-profile.md) before saving Package
 decisions. Read [narrative-patterns.md](references/narrative-patterns.md) only
 when selecting the composition shape for a long investigation or campaign.
+Read [emergent-campaign.md](references/emergent-campaign.md) when beginning from
+a setting seed, growing the campaign episode by episode, or extending an
+authored scenario beyond its Scene Atlas.
 
 ## Boundaries
 

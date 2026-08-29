@@ -17,6 +17,7 @@ from sagasmith_core.content_pack import (
     validate_content_package as validate_core_content_package,
 )
 
+from sagasmith_coc.module_profile import runtime_manifest_errors
 from sagasmith_coc.system import validate_investigator_sheet
 
 COC_SYSTEM_ID = "coc7e"
@@ -34,6 +35,9 @@ MODULE_PLAY_PROFILE_FIELDS = frozenset(
 )
 MODULE_CATALOG_FIELDS = frozenset(
     {"clues", "handouts", "encounters", "hazards", "tomes", "spells", "mechanics"}
+)
+RUNTIME_DESIGN_CLASSIFICATIONS = frozenset(
+    {"authored_scenario", "emergent_seed", "emergent_episode"}
 )
 
 
@@ -244,7 +248,45 @@ def validate_coc_content_package(package: Mapping[str, Any]) -> dict[str, Any]:
         or not isinstance(narrative.get("endings"), list)
     ):
         raise ValueError("CoC module narrative requires dossiers and endings arrays")
-    if classification in {"campaign", "scenario", "solo_adventure"} and not narrative["endings"]:
+    runtime_design = content.get("runtime_design")
+    runtime_classification = "authored_scenario"
+    if runtime_design is not None:
+        if not isinstance(runtime_design, Mapping):
+            raise ValueError("CoC module runtime_design must be an object")
+        if errors := runtime_manifest_errors(dict(runtime_design)):
+            raise ValueError("invalid CoC runtime_design: " + "; ".join(errors))
+        runtime_classification = str(runtime_design.get("classification") or "")
+        if runtime_classification not in RUNTIME_DESIGN_CLASSIFICATIONS:
+            raise ValueError("CoC module runtime_design classification is unsupported")
+        lineage = runtime_design.get("lineage")
+        if not isinstance(lineage, Mapping):
+            raise ValueError("CoC module runtime_design requires lineage")
+        root_module_key = str(lineage.get("root_module_key") or "")
+        parent_module_key = str(lineage.get("parent_module_key") or "")
+        generation = lineage.get("generation")
+        if not root_module_key:
+            raise ValueError("CoC module runtime_design requires root_module_key")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise ValueError("CoC module runtime_design generation must be non-negative")
+        if runtime_classification in {"authored_scenario", "emergent_seed"} and (
+            parent_module_key or generation != 0
+        ):
+            raise ValueError("runtime design roots must be generation 0 with no parent")
+        if runtime_classification in {"emergent_seed", "emergent_episode"} and not list(
+            content.get("scene_atlas") or []
+        ):
+            raise ValueError("emergent CoC module shards require a Scene Atlas scene")
+        if runtime_classification == "emergent_episode" and (
+            not parent_module_key or generation < 1
+        ):
+            raise ValueError(
+                "emergent_episode runtime_design requires a parent and positive generation"
+            )
+    if (
+        classification in {"campaign", "scenario", "solo_adventure"}
+        and runtime_classification not in {"emergent_seed", "emergent_episode"}
+        and not narrative["endings"]
+    ):
         raise ValueError("playable CoC modules require at least one reachable ending")
     if classification == "solo_adventure" and not content["play_profile"]["solo_play"]["supported"]:
         raise ValueError("solo_adventure requires play_profile.solo_play.supported")
@@ -549,6 +591,19 @@ def build_module_content_package(
             descriptor["narrative"], source_key=source["source_key"], chunk_hash_keys=hash_keys
         ),
     }
+    runtime_design = (
+        descriptor.get("runtime_design")
+        or translated_manifest.get("runtime_design")
+        or dict(dict(descriptor.get("source") or {}).get("metadata") or {}).get(
+            "runtime_manifest"
+        )
+    )
+    if runtime_design is not None:
+        content["runtime_design"] = _translate_module_refs(
+            runtime_design,
+            source_key=source["source_key"],
+            chunk_hash_keys=hash_keys,
+        )
     package = build_content_package(
         kind="module",
         package_id=str(descriptor["id"]),

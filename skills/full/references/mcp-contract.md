@@ -45,6 +45,7 @@ inventory_change        long_term_change
 memory_change           memory_query
 module_change           module_draft           module_query
 npc_conversation
+playthrough_manifest
 resolution_presentation
 rule_query              rulebook_draft
 server_capabilities     skill_query
@@ -66,8 +67,8 @@ actor_knowledge_change actor_knowledge_query bounded_evaluation branch_change br
 campaign_change campaign_event character_change character_query coc_dice_roll
 coc_resolve content_pack continuity_context development_query
 development_settle inventory_change long_term_change memory_change memory_query
-module_change module_draft module_query rule_query rulebook_draft snapshot_change
-snapshot_query state_revision wallet_change
+module_change module_draft module_query playthrough_manifest rule_query
+rulebook_draft snapshot_change snapshot_query state_revision wallet_change
 ~~~
 
 DM/owner authorization is required for actor_knowledge_change, branch_change,
@@ -130,6 +131,7 @@ checks still apply to other tools.
 | memory_query / memory_change | list/search; add/upsert/revise/commit |
 | campaign_event | add, list |
 | actor_knowledge_query / change | list/search; add/revise |
+| playthrough_manifest | get, initialize, replace |
 | branch_query / change | current/list/get/compare; create/checkout |
 | snapshot_query / change | list/get/verify/lineage; create/restore |
 | state_revision | history, receipt, undo, redo |
@@ -241,8 +243,9 @@ deciding whether the semantic commit is still missing.
   core_rules schema-v2 Pack, import/activate it with content_pack, then use
   rule_query search/expand/effective in any phase. Keep copyrighted source text
   local and preserve its checksums.
-- continuity_context may issue signed, short-lived bundles for actor_turn,
-  audience_render, faction_turn, source_interpretation, or bounded_ruling.
+- continuity_context may issue signed, short-lived bundles for actor_memory,
+  actor_turn, audience_render, faction_turn, campaign_expansion,
+  source_interpretation, or bounded_ruling.
   bounded_evaluation validates one strict tool-free proposal and never writes
   authoritative state. It cannot replace a human investigator choice.
 - npc_conversation is the public Keeper facade. The Agent supplies explicit
@@ -251,6 +254,10 @@ deciding whether the semantic commit is still missing.
 - `npc_conversation_transport` is an authenticated Host-private transport and
   is never listed or exposed to the Director. Never copy private
   bootstrap/proposal data into Director context.
+- campaign_expansion is a Keeper-only Lobby boundary. Its worker has no tools,
+  its validated proposal never changes state, and only reviewed authoring plus
+  playthrough_manifest can append an immutable seed/episode lineage. An
+  authored root remains immutable when reasonable off-Atlas scenes are added.
 - Close a conversation only after all activations, publications, and requested
   mechanics are settled. Close commits the public transcript and explicitly
   accepted working deltas; abort discards the draft. Active conversations block

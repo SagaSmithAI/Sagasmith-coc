@@ -220,7 +220,7 @@ async def _assert_contract(client: Client, mode: str) -> None:
     catalog = await client.list_tools()
     names = [tool.name for tool in catalog.tools]
     assert names == sorted(names)
-    assert len(names) == (51 if mode == "2026-07-28" else 7)
+    assert len(names) == (52 if mode == "2026-07-28" else 7)
     assert all(tool.description for tool in catalog.tools)
     assert all(tool.output_schema for tool in catalog.tools)
 

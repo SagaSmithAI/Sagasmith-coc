@@ -13,6 +13,13 @@ notes constrain Agent decisions; they do not replace native schemas.
 - scenarios, campaigns, and solo adventures require a reachable ending
 - solo adventures require an evidence-backed supported solo profile
 
+Pack classification is orthogonal to runtime design classification. Preserve
+the Pack value above while runtime design uses `authored_scenario`,
+`emergent_seed`, or `emergent_episode`. Emergent seeds and episodes may omit an
+ending until the table asks for a bounded finale; authored scenarios retain the
+reachable-ending requirement. Runtime lineage and Scene Atlas links are
+validated independently of Pack type.
+
 ## Required play-profile review
 
 Use real source receipts for investigator count, supported/recommended ruleset,
