@@ -18,8 +18,18 @@ returns an owner- and TTL-bound opaque handle for catalog guidance only; it gran
 no authority. Connection exposure and `tools/list_changed` remain only in the
 explicit legacy adapter and are not a durable security boundary.
 
-List APIs default to 50 records, enforce a maximum of 100, and return
-`next_cursor`; callers must reuse that cursor verbatim. Expected, model-repairable
+Collection reads expose the same top-level `query`, `limit`, and `cursor` contract.
+They default to 50 records, enforce a maximum of 100, and return both
+`next_cursor` and `has_more`; callers must reuse the opaque cursor verbatim with
+the same filters. This applies to module drafts, rule sources, module/scene/progress
+indexes and search, objective memory, actor knowledge, branches, snapshot lists and
+lineage, investigation history, campaign events, and state-revision history. Event
+and revision cursors are pushed into Core, so records after the first 100 remain
+reachable without loading complete campaign history into the MCP process. The
+locked CI lane uses Core `612bfe7e5290eb5b23f2811baa83b8a28293b36e`, the first
+Core release commit with those bounded authority offsets.
+
+Expected, model-repairable
 failures return `isError: true` with actionable guidance. Protocol/input failures
 remain JSON-RPC errors, and unexpected internal failures do not expose details.
 Every public tool publishes parameter descriptions, enforced request bounds,

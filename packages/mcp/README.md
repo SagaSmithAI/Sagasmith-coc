@@ -14,8 +14,14 @@
 handle，作为目录导航，不授予权限。legacy `tools/list_changed` 与连接 exposure 只保留在明确
 兼容路径中，不再是长期安全边界。
 
-列表接口默认最多返回 50 项，硬上限 100，并返回 `next_cursor`；继续翻页必须原样复用该
-游标。预期业务错误返回 `isError: true` 与可操作提示，参数/协议错误保持 JSON-RPC 错误，
+所有集合读取统一使用顶层 `query`、`limit`、`cursor`：默认最多返回 50 项，硬上限 100，
+同时返回 `next_cursor` 与 `has_more`；继续翻页必须在相同过滤条件下原样复用服务器签发的
+opaque 游标。该契约覆盖模组草稿、规则来源、模组/场景/进度索引与搜索、客观记忆、角色知识、
+分支、快照列表与 lineage、调查历史、战役事件及状态修订历史。事件与修订游标会下推 Core，
+因此第 101 条之后仍可达，MCP 进程无需加载完整战役历史。锁定 CI lane 使用首个提供这些
+权威 offset 的 Core commit `612bfe7e5290eb5b23f2811baa83b8a28293b36e`。
+
+预期业务错误返回 `isError: true` 与可操作提示，参数/协议错误保持 JSON-RPC 错误，
 未预期内部异常不会泄露细节。
 每个公开工具都发布参数说明、实际执行的请求边界、行为注解和稳定输出 schema。工具执行失败
 保留兼容 text block，同时在 `structuredContent.error` 返回 `code`、`message`、

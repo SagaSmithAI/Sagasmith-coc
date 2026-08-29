@@ -273,7 +273,9 @@ def test_campaign_catalog_filter_and_cursor_are_bounded(tmp_path: Path) -> None:
             )
         ).structured_content
         assert len(first["campaigns"]) == 2
-        assert first["next_cursor"] == "p:2"
+        assert first["has_more"] is True
+        assert first["next_cursor"]
+        assert not first["next_cursor"].startswith("p:")
         second = (
             await server.call_tool(
                 "campaign_query",
@@ -287,6 +289,7 @@ def test_campaign_catalog_filter_and_cursor_are_bounded(tmp_path: Path) -> None:
         ).structured_content
         assert len(second["campaigns"]) == 1
         assert second["next_cursor"] is None
+        assert second["has_more"] is False
 
         campaign_tool = next(
             tool for tool in await server.list_tools() if tool.name == "campaign_query"

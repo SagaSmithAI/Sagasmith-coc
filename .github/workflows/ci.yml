@@ -17,7 +17,7 @@ jobs:
         include:
           - lane: locked-py311
             python_version: "3.11"
-            core_ref: eef98fcfcaa96d08c069708b33ee7717ba1625c3
+            core_ref: 612bfe7e5290eb5b23f2811baa83b8a28293b36e
           - lane: compatibility-py312
             python_version: "3.12"
             core_ref: main
