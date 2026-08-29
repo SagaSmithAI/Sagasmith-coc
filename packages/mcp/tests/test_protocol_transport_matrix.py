@@ -226,7 +226,11 @@ async def _assert_contract(client: Client, mode: str) -> None:
 
     result = await client.call_tool("campaign_query", {"action": "list", "limit": 1})
     assert result.is_error is False
-    assert result.structured_content == {"campaigns": [], "next_cursor": None}
+    assert result.structured_content == {
+        "campaigns": [],
+        "next_cursor": None,
+        "has_more": False,
+    }
 
     invalid = await client.call_tool("campaign_query", {"action": "unsupported"})
     assert invalid.is_error is True

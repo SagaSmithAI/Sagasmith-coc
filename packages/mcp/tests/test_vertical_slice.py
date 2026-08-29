@@ -1091,7 +1091,7 @@ def test_module_draft_content_asset_and_actor_edits_enter_final_pack(tmp_path, m
             server,
             "character_query",
             {"action": "list", "campaign_id": target["id"]},
-        ) == {"characters": [], "next_cursor": None}
+    ) == {"characters": [], "next_cursor": None, "has_more": False}
         monkeypatch.setattr(ModuleService, "bind_actor", original_bind)
         imported = await call(server, "content_pack", import_args)
         assert imported_asset_maps

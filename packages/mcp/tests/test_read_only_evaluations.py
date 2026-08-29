@@ -102,10 +102,18 @@ async def _paged_roster(server, campaign_id: str) -> list[dict]:
             return values
 
 
-async def _solve(server) -> list[str]:
+async def _campaign_rosters(server) -> tuple[list[dict], dict[str, list[dict]]]:
     campaigns = sorted(await _paged_campaigns(server), key=lambda item: item["name"])
     rosters = {item["id"]: await _paged_roster(server, item["id"]) for item in campaigns}
-    details = [
+    return campaigns, rosters
+
+
+async def _detailed_actors(
+    server,
+    campaigns: list[dict],
+    rosters: dict[str, list[dict]],
+) -> list[dict]:
+    return [
         await _call(
             server,
             "character_query",
@@ -118,35 +126,100 @@ async def _solve(server) -> list[str]:
         for campaign in campaigns
         for actor in rosters[campaign["id"]]
     ]
-    campaign_by_id = {item["id"]: item for item in campaigns}
-    largest = max(campaigns, key=lambda item: len(rosters[item["id"]]))
-    last_investigator = max(
-        actor["name"] for actor in details if actor["character_type"] == "investigator"
-    )
+
+
+async def _solve_largest_roster(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    return max(campaigns, key=lambda item: len(rosters[item["id"]]))["name"]
+
+
+async def _solve_last_investigator(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    details = await _detailed_actors(server, campaigns, rosters)
+    return max(actor["name"] for actor in details if actor["character_type"] == "investigator")
+
+
+async def _solve_creature_campaign(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    details = await _detailed_actors(server, campaigns, rosters)
     creature = next(actor for actor in details if actor["character_type"] == "creature")
-    npc_count = sum(actor["character_type"] == "npc" for actor in details)
-    balanced = next(
-        campaign
+    return next(item["name"] for item in campaigns if item["id"] == creature["campaign_id"])
+
+
+async def _solve_npc_count(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    details = await _detailed_actors(server, campaigns, rosters)
+    return str(sum(actor["character_type"] == "npc" for actor in details))
+
+
+async def _solve_actor_count(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    return str(len(await _detailed_actors(server, campaigns, rosters)))
+
+
+async def _solve_balanced_campaign(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    return next(
+        campaign["name"]
         for campaign in campaigns
         if sum(actor["character_type"] == "investigator" for actor in rosters[campaign["id"]])
         == sum(actor["character_type"] == "npc" for actor in rosters[campaign["id"]])
     )
-    observatory = next(actor for actor in details if "sealed observatory" in actor["summary"])
+
+
+async def _solve_observatory_custodian(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
+    details = await _detailed_actors(server, campaigns, rosters)
+    return next(actor["name"] for actor in details if "sealed observatory" in actor["summary"])
+
+
+async def _solve_kingsport_classifications(server) -> str:
+    campaigns, rosters = await _campaign_rosters(server)
     kingsport = next(item for item in campaigns if item["name"] == "Kingsport Signal")
-    capabilities = await _call(server, "server_capabilities")
-    assert capabilities["system"] == campaigns[0]["system_id"]
-    return [
-        largest["name"],
-        last_investigator,
-        campaign_by_id[creature["campaign_id"]]["name"],
-        str(npc_count),
-        str(len(details)),
-        balanced["name"],
-        observatory["name"],
-        str(len({actor["character_type"] for actor in rosters[kingsport["id"]]})),
-        capabilities["system"],
-        campaigns[0]["slug"],
+    details = await _detailed_actors(server, [kingsport], rosters)
+    return str(len({actor["character_type"] for actor in details}))
+
+
+async def _solve_shared_system(server) -> str:
+    campaigns = await _paged_campaigns(server)
+    details = [
+        await _call(
+            server,
+            "campaign_query",
+            {"action": "get", "campaign_id": campaign["id"]},
+        )
+        for campaign in campaigns
     ]
+    capabilities = await _call(server, "server_capabilities")
+    assert {item["system_id"] for item in details} == {capabilities["system"]}
+    return capabilities["system"]
+
+
+async def _solve_first_slug(server) -> str:
+    campaigns = sorted(await _paged_campaigns(server), key=lambda item: item["name"])
+    selected = await _call(
+        server,
+        "campaign_query",
+        {"action": "get", "campaign_id": campaigns[0]["id"]},
+    )
+    assert await _paged_roster(server, selected["id"])
+    return selected["slug"]
+
+
+async def _solve_independently(server) -> list[str]:
+    solvers = (
+        _solve_largest_roster,
+        _solve_last_investigator,
+        _solve_creature_campaign,
+        _solve_npc_count,
+        _solve_actor_count,
+        _solve_balanced_campaign,
+        _solve_observatory_custodian,
+        _solve_kingsport_classifications,
+        _solve_shared_system,
+        _solve_first_slug,
+    )
+    return [await solver(server) for solver in solvers]
 
 
 def test_builder_evaluations_are_independent_read_only_and_actually_solved(
@@ -177,6 +250,6 @@ def test_builder_evaluations_are_independent_read_only_and_actually_solved(
             assert annotations is not None
             assert annotations.read_only_hint is True
             assert annotations.idempotent_hint is True
-        assert await _solve(server) == answers
+        assert await _solve_independently(server) == answers
 
     asyncio.run(exercise())

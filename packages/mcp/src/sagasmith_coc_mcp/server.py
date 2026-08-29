@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import importlib
 import json
@@ -15,7 +17,7 @@ from copy import deepcopy
 from dataclasses import asdict
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Annotated, Any, Literal, Mapping, TypeVar
+from typing import Annotated, Any, Callable, Literal, Mapping, TypeVar
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
@@ -299,6 +301,8 @@ _COMMON_OUTPUT_FIELDS = (
     "receipt",
     "idempotent_replay",
     "host_context_binding",
+    "next_cursor",
+    "has_more",
 )
 _TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     "server_capabilities": (
@@ -320,7 +324,15 @@ _TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     "long_term_change": ("character", "changes", "source"),
     "rulebook_draft": ("job", "jobs", "source", "chunks", "hits"),
     "rule_query": ("hits", "sources", "ruleset"),
-    "module_draft": ("job", "jobs", "artifact", "inspection", "validation", "assets"),
+    "module_draft": (
+        "job",
+        "jobs",
+        "order",
+        "artifact",
+        "inspection",
+        "validation",
+        "assets",
+    ),
     "content_pack": ("pack", "packs", "validation"),
     "module_query": ("module", "modules", "scene", "scenes", "hits", "progress"),
     "module_change": ("module", "scene", "progress"),
@@ -343,7 +355,7 @@ _TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     "development_settle": ("actor", "results", "rolls"),
     "group_luck_query": ("candidates", "lowest_luck"),
     "group_luck_check": ("selected_actor_id", "roll", "result"),
-    "investigation_query": ("pending", "history", "next_cursor"),
+    "investigation_query": ("actor_id", "pending", "history", "next_cursor"),
     "investigation_check": ("investigation", "choice", "result"),
     "coc_sanity_check": ("sanity", "roll", "loss"),
     "coc_hp_change": ("character", "hit_points", "condition"),
@@ -359,6 +371,32 @@ _TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     "coc_resolve": ("resolution", "roll", "result"),
     "skill_query": ("skill", "skills", "content", "next_cursor"),
     "exposure": ("exposure_handle", "matches", "next_cursor", "changed", "catalog_effect"),
+}
+_COLLECTION_OUTPUT_FIELDS = {
+    "artifacts",
+    "assets",
+    "branches",
+    "campaigns",
+    "characters",
+    "constraints",
+    "conversations",
+    "events",
+    "history",
+    "hits",
+    "jobs",
+    "knowledge",
+    "matches",
+    "mechanics",
+    "memories",
+    "modules",
+    "packs",
+    "progress",
+    "revisions",
+    "scenes",
+    "skills",
+    "snapshots",
+    "sources",
+    "violations",
 }
 
 
@@ -475,6 +513,13 @@ def _output_schema(tool_name: str) -> dict[str, Any]:
         name: {"description": f"Authoritative {name.replace('_', ' ')} returned by {tool_name}."}
         for name in fields
     }
+    for name in fields:
+        if name in _COLLECTION_OUTPUT_FIELDS:
+            properties[name]["type"] = "array"
+        elif name == "has_more":
+            properties[name]["type"] = "boolean"
+        elif name == "next_cursor":
+            properties[name]["type"] = ["string", "null"]
     properties["error"] = {
         "type": "object",
         "description": (
@@ -497,24 +542,106 @@ def _output_schema(tool_name: str) -> dict[str, Any]:
     }
 
 
+def _page_offset(cursor: str | None) -> int:
+    """Decode a server-issued cursor without exposing storage offsets to callers."""
+
+    raw_cursor = str(cursor or "").strip()
+    if not raw_cursor:
+        return 0
+    try:
+        padding = "=" * (-len(raw_cursor) % 4)
+        decoded = base64.urlsafe_b64decode(raw_cursor + padding).decode("ascii")
+    except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+        raise ValueError(
+            "cursor is invalid; reuse next_cursor from the preceding response"
+        ) from exc
+    prefix, separator, raw_offset = decoded.partition(":")
+    if prefix != "coc-page-v1" or separator != ":" or not raw_offset.isdigit():
+        raise ValueError("cursor is invalid; reuse next_cursor from the preceding response")
+    offset = int(raw_offset)
+    if offset > 100_000:
+        raise ValueError("cursor is invalid; reuse next_cursor from the preceding response")
+    return offset
+
+
+def _page_cursor(offset: int) -> str:
+    encoded = base64.urlsafe_b64encode(f"coc-page-v1:{offset}".encode("ascii")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _query_terms(query: str) -> tuple[str, ...]:
+    return tuple(term.casefold() for term in str(query or "").split() if term.strip())
+
+
+def _matches_query(value: Any, query: str) -> bool:
+    terms = _query_terms(query)
+    if not terms:
+        return True
+    searchable = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).casefold()
+    return all(term in searchable for term in terms)
+
+
 def _bounded_page(
     values: list[PageItem],
     *,
     limit: int = 50,
     cursor: str | None = None,
-) -> tuple[list[PageItem], str | None]:
+) -> tuple[list[PageItem], str | None, bool]:
     """Return one deterministic bounded page without exposing database offsets."""
 
     if isinstance(limit, bool) or not 1 <= int(limit) <= 100:
         raise ValueError("limit must be between 1 and 100")
-    raw_cursor = str(cursor or "").strip()
-    if raw_cursor and (not raw_cursor.startswith("p:") or not raw_cursor[2:].isdigit()):
-        raise ValueError("cursor is invalid; reuse next_cursor from the preceding response")
-    offset = int(raw_cursor[2:]) if raw_cursor else 0
+    offset = _page_offset(cursor)
     page = values[offset : offset + int(limit)]
     next_offset = offset + len(page)
-    next_cursor = f"p:{next_offset}" if next_offset < len(values) else None
-    return page, next_cursor
+    has_more = next_offset < len(values)
+    next_cursor = _page_cursor(next_offset) if has_more else None
+    return page, next_cursor, has_more
+
+
+def _filtered_page(
+    values: list[PageItem],
+    *,
+    query: str = "",
+    limit: int = 50,
+    cursor: str | None = None,
+) -> tuple[list[PageItem], str | None, bool]:
+    return _bounded_page(
+        [value for value in values if _matches_query(value, query)],
+        limit=limit,
+        cursor=cursor,
+    )
+
+
+def _authority_page(
+    fetch_page: Callable[[int, int], list[PageItem]],
+    *,
+    query: str = "",
+    limit: int = 50,
+    cursor: str | None = None,
+    newest_last: bool = False,
+) -> tuple[list[PageItem], str | None, bool]:
+    """Page a Core authority collection without materializing complete history."""
+
+    if isinstance(limit, bool) or not 1 <= int(limit) <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    offset = _page_offset(cursor)
+    selected: list[PageItem] = []
+    while offset <= 100_000:
+        batch_limit = min(100, 100_001 - offset)
+        batch = fetch_page(batch_limit, offset)
+        ordered = list(reversed(batch)) if newest_last else batch
+        for value in ordered:
+            if _matches_query(value, query):
+                if len(selected) == int(limit):
+                    page = list(reversed(selected)) if newest_last else selected
+                    return page, _page_cursor(offset), True
+                selected.append(value)
+            offset += 1
+        if len(batch) < batch_limit:
+            break
+    page = list(reversed(selected)) if newest_last else selected
+    return page, None, False
 
 
 def _auth_receipt_revision(value: Any) -> int | str | None:
@@ -2337,10 +2464,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     )
                 )
             ]
-            page, next_cursor = _bounded_page(values, limit=limit, cursor=cursor)
+            page, next_cursor, has_more = _bounded_page(values, limit=limit, cursor=cursor)
             return {
                 "campaigns": page,
                 "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if campaign_id is None:
             raise ValueError("campaign_id is required")
@@ -2445,10 +2573,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     for term in terms
                 )
             ]
-            page, next_cursor = _bounded_page(values, limit=limit, cursor=cursor)
+            page, next_cursor, has_more = _bounded_page(values, limit=limit, cursor=cursor)
             return {
                 "characters": page,
                 "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if character_id is None:
             raise ValueError("character_id is required")
@@ -3130,13 +3259,22 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = "system:local",
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Read indexed CoC rules and the branch-locked effective ruleset."""
 
         access.require_campaign(campaign_id, principal_id)
         data = dict(data or {})
         if action == "sources":
-            return {"sources": rules.sources(system_id="coc7e")}
+            page, next_cursor, has_more = _filtered_page(
+                rules.sources(system_id="coc7e"),
+                query=query,
+                limit=limit,
+                cursor=cursor,
+            )
+            return {"sources": page, "next_cursor": next_cursor, "has_more": has_more}
         if action == "search":
             query = str(data.get("query") or "").strip()
             if not query:
@@ -3167,6 +3305,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         expected_revision: int | None = None,
         idempotency_key: str | None = None,
         principal_id: str = "system:local",
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Create, inspect, evidence-review, edit, and finalize one CoC Module Pack draft."""
 
@@ -3177,11 +3318,20 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             if data.get("job_id"):
                 job = require_module_job(campaign_id, str(data["job_id"]))
                 return {"job": import_job_view(job)}
+            page, next_cursor, has_more = _filtered_page(
+                [
+                    import_job_handle(item)
+                    for item in import_jobs.list(campaign_id, kind="module")
+                ],
+                query=query,
+                limit=limit,
+                cursor=cursor,
+            )
             return {
                 "order": "newest_first",
-                "jobs": [
-                    import_job_handle(item) for item in import_jobs.list(campaign_id, kind="module")
-                ],
+                "jobs": page,
+                "next_cursor": next_cursor,
+                "has_more": has_more,
             }
 
         if action == "start":
@@ -4685,20 +4835,36 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = "system:local",
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         access.require_campaign(campaign_id, principal_id)
         data = dict(data or {})
         keeper = is_dm(campaign_id, principal_id)
         if action == "list":
-            return {"modules": modules.list(campaign_id)}
+            page, next_cursor, has_more = _filtered_page(
+                modules.list(campaign_id), query=query, limit=limit, cursor=cursor
+            )
+            return {"modules": page, "next_cursor": next_cursor, "has_more": has_more}
         if action == "index":
             values = modules.scene_index(campaign_id, module_id=data.get("module_id"))
-            return {
-                "scenes": values
+            visible = (
+                values
                 if keeper
                 else [
-                    item for item in values if item["visibility"] in PLAYER_MODULE_VISIBILITY_SCOPES
+                    item
+                    for item in values
+                    if item["visibility"] in PLAYER_MODULE_VISIBILITY_SCOPES
                 ]
+            )
+            page, next_cursor, has_more = _filtered_page(
+                visible, query=query, limit=limit, cursor=cursor
+            )
+            return {
+                "scenes": page,
+                "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if action == "current":
             value = modules.current_scene(
@@ -4712,29 +4878,48 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 return {"scene": None}
             return {"scene": value}
         if action == "progress":
-            return {
-                "progress": modules.scene_progress_index(
+            page, next_cursor, has_more = _filtered_page(
+                modules.scene_progress_index(
                     campaign_id,
                     scope_id=str(data.get("scope_id") or "party"),
                     module_id=data.get("module_id"),
-                )
+                ),
+                query=query,
+                limit=limit,
+                cursor=cursor,
+            )
+            return {
+                "progress": page,
+                "next_cursor": next_cursor,
+                "has_more": has_more,
             }
-        if not data.get("query"):
-            raise ValueError("data.query is required")
+        effective_query = query or str(data.get("query") or "").strip()
+        if not effective_query:
+            raise ValueError("query is required")
         hits = modules.search(
             campaign_id=campaign_id,
-            query=str(data["query"]),
+            query=effective_query,
+            top_k=100,
             query_hints=COC7E_QUERY_HINTS,
         )
         values = [asdict(item) for item in hits]
-        return {
-            "hits": values
+        visible = (
+            values
             if keeper
             else [
                 item
                 for item in values
-                if item.get("metadata", {}).get("visibility") in PLAYER_MODULE_VISIBILITY_SCOPES
+                if item.get("metadata", {}).get("visibility")
+                in PLAYER_MODULE_VISIBILITY_SCOPES
             ]
+        )
+        page, next_cursor, has_more = _bounded_page(
+            visible, limit=limit, cursor=cursor
+        )
+        return {
+            "hits": page,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
         }
 
     @mcp.tool()
@@ -4765,17 +4950,23 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = "system:local",
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Read the Keeper's objective, branch-scoped continuity ledger."""
 
         require_dm(campaign_id, principal_id)
         data = dict(data or {})
         branch_id = readable_branch_id(campaign_id, data.get("branch_id"), principal_id)
+        effective_query = query or str(data.get("query") or "").strip()
+        page_limit = int(data.get("limit", limit))
+        page_cursor = cursor or data.get("cursor")
         values = (
             memories.search(
                 campaign_id,
-                str(data.get("query") or " "),
-                limit=int(data.get("limit", 8)),
+                effective_query or " ",
+                limit=100,
                 branch_id=branch_id,
                 include_inactive=bool(data.get("include_inactive", False)),
             )
@@ -4787,7 +4978,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 include_inactive=bool(data.get("include_inactive", False)),
             )
         )
-        return {"memories": [asdict(item) for item in values]}
+        page, next_cursor, has_more = _filtered_page(
+            [asdict(item) for item in values],
+            query=("" if action == "search" else effective_query),
+            limit=page_limit,
+            cursor=page_cursor,
+        )
+        return {"memories": page, "next_cursor": next_cursor, "has_more": has_more}
 
     @mcp.tool()
     def memory_change(
@@ -4993,6 +5190,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         data: dict[str, Any] | None = None,
         principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
         idempotency_key: str | None = None,
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Append or read the branch-visible chronology with explicit audiences."""
 
@@ -5004,14 +5204,24 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             if actor_id is not None:
                 actor_access(campaign_id, actor_id, principal_id)
             audience = "dm" if membership.role in {"owner", "dm"} else "player"
-            values = events.list_for_audience(
-                campaign_id,
-                audience=audience,
-                actor_id=actor_id,
-                limit=int(data.get("limit", 50)),
-                branch_id=branch_id,
+            page, next_cursor, has_more = _authority_page(
+                lambda page_limit, offset: [
+                    asdict(item)
+                    for item in events.list_for_audience(
+                        campaign_id,
+                        audience=audience,
+                        actor_id=actor_id,
+                        limit=page_limit,
+                        offset=offset,
+                        branch_id=branch_id,
+                    )
+                ],
+                query=query or str(data.get("query") or ""),
+                limit=int(data.get("limit", limit)),
+                cursor=cursor or data.get("cursor"),
+                newest_last=True,
             )
-            return {"events": [asdict(item) for item in values]}
+            return {"events": page, "next_cursor": next_cursor, "has_more": has_more}
 
         require_dm(campaign_id, principal_id)
         key = str(idempotency_key or "").strip()
@@ -6129,17 +6339,23 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         actor_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = "system:local",
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         actor_access(campaign_id, actor_id, principal_id)
         data = dict(data or {})
         branch_id = readable_branch_id(campaign_id, data.get("branch_id"), principal_id)
+        effective_query = query or str(data.get("query") or "").strip()
+        page_limit = int(data.get("limit", limit))
+        page_cursor = cursor or data.get("cursor")
         values = (
             knowledge.search(
                 campaign_id,
                 actor_id=actor_id,
-                query=str(data.get("query") or " "),
+                query=effective_query or " ",
                 branch_id=branch_id,
-                limit=int(data.get("limit", 8)),
+                limit=100,
                 include_inactive=bool(data.get("include_inactive", False)),
             )
             if action == "search"
@@ -6152,7 +6368,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         )
         if not is_dm(campaign_id, principal_id):
             values = [item for item in values if item.disclosure_scope in {"owner", "public"}]
-        return {"knowledge": [asdict(item) for item in values]}
+        page, next_cursor, has_more = _filtered_page(
+            [asdict(item) for item in values],
+            query=("" if action == "search" else effective_query),
+            limit=page_limit,
+            cursor=page_cursor,
+        )
+        return {"knowledge": page, "next_cursor": next_cursor, "has_more": has_more}
 
     @mcp.tool()
     def actor_knowledge_change(
@@ -6225,6 +6447,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Inspect campaign timelines without changing the checked-out branch."""
 
@@ -6237,7 +6462,10 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             if membership.role not in {"owner", "dm"}:
                 current = current_branch_id(campaign_id)
                 values = [item for item in values if item["id"] == current]
-            return {"branches": values}
+            page, next_cursor, has_more = _filtered_page(
+                values, query=query, limit=limit, cursor=cursor
+            )
+            return {"branches": page, "next_cursor": next_cursor, "has_more": has_more}
         if action == "get":
             branch_id = str(data.get("branch_id") or "")
             if not branch_id:
@@ -6369,17 +6597,34 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         data: dict[str, Any] | None = None,
         principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Read Keeper-only save history, payloads, integrity, and lineage."""
 
         require_dm(campaign_id, principal_id)
         data = dict(data or {})
         if action == "list":
-            return {"snapshots": [asdict(item) for item in snapshots.list(campaign_id)]}
+            page, next_cursor, has_more = _filtered_page(
+                [asdict(item) for item in snapshots.list(campaign_id)],
+                query=query,
+                limit=limit,
+                cursor=cursor,
+            )
+            return {"snapshots": page, "next_cursor": next_cursor, "has_more": has_more}
         if action == "lineage":
             slot = int(data["slot"]) if data.get("slot") is not None else None
+            page, next_cursor, has_more = _filtered_page(
+                [asdict(item) for item in snapshots.lineage(campaign_id, slot=slot)],
+                query=query,
+                limit=limit,
+                cursor=cursor,
+            )
             return {
-                "snapshots": [asdict(item) for item in snapshots.lineage(campaign_id, slot=slot)]
+                "snapshots": page,
+                "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if "slot" not in data:
             raise ValueError("data.slot is required")
@@ -6468,17 +6713,30 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         data: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
         principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
+        query: SearchText = "",
+        limit: PageLimit = 50,
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Read the branch revision ledger or perform guarded undo and redo."""
 
         require_dm(campaign_id, principal_id)
         data = dict(data or {})
         if action == "history":
-            return {
-                "revisions": [
+            page, next_cursor, has_more = _authority_page(
+                lambda page_limit, offset: [
                     asdict(item)
-                    for item in revisions.history(campaign_id, limit=int(data.get("limit", 100)))
-                ]
+                    for item in revisions.history(
+                        campaign_id, limit=page_limit, offset=offset
+                    )
+                ],
+                query=query or str(data.get("query") or ""),
+                limit=int(data.get("limit", limit)),
+                cursor=cursor or data.get("cursor"),
+            )
+            return {
+                "revisions": page,
+                "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if action == "receipt":
             receipt_key = str(data.get("idempotency_key") or "").strip()
@@ -6826,8 +7084,10 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign_id: str,
         actor_id: str,
         view: Literal["pending", "history"] = "pending",
-        limit: int = 20,
+        limit: PageLimit = 20,
         principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
+        query: SearchText = "",
+        cursor: PageCursor = None,
     ) -> dict[str, Any]:
         """Read one actor's pending or settled investigation checks."""
 
@@ -6849,11 +7109,19 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             for item in list(ledger["history"])
             if str(dict(item).get("actor_id") or "") == actor_id
         ]
+        page, next_cursor, has_more = _filtered_page(
+            values,
+            query=query,
+            limit=limit,
+            cursor=cursor,
+        )
         return {
             "campaign_id": campaign_id,
             "campaign_revision": campaign.revision,
             "actor_id": actor_id,
-            "history": values[-max(1, min(int(limit), 100)) :],
+            "history": page,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
         }
 
     @mcp.tool()
@@ -8642,10 +8910,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 if not terms
                 or all(term in f"{item.id} {item.title} {item.source}".casefold() for term in terms)
             ]
-            page, next_cursor = _bounded_page(values, limit=limit, cursor=cursor)
+            page, next_cursor, has_more = _bounded_page(values, limit=limit, cursor=cursor)
             return {
                 "skills": page,
                 "next_cursor": next_cursor,
+                "has_more": has_more,
             }
         if skill_id is None:
             raise ValueError("skill_id is required")
@@ -8760,12 +9029,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                         "roles": sorted(roles),
                     }
                 )
-            page, next_cursor = _bounded_page(matches, limit=limit, cursor=cursor)
+            page, next_cursor, has_more = _bounded_page(matches, limit=limit, cursor=cursor)
             return {
                 **exposures.status(current),
                 "query_semantics": "all_terms_match_one_tool",
                 "matches": page,
                 "next_cursor": next_cursor,
+                "has_more": has_more,
             }
 
         additions = list(add_tool_ids or [])

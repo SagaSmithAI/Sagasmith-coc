@@ -37,7 +37,7 @@
     <answer>coc7e</answer>
   </qa_pair>
   <qa_pair>
-    <question>Sort the fixture campaigns by their human-readable names, select the first, and report its canonical slug.</question>
+    <question>Page through all fixture campaigns, sort them by human-readable name, select the first, verify its complete roster is non-empty, then report its canonical slug.</question>
     <answer>arkham-lantern</answer>
   </qa_pair>
 </evaluation>
