@@ -5,7 +5,7 @@
 | Discovery | Optional `server/discover`; request metadata on every call | `initialize` / `initialized` |
 | Version and client capabilities | Every request `_meta` | Negotiated once at initialization |
 | HTTP routing | `Mcp-Method` / `Mcp-Name`; no session id required | Streamable HTTP session adapter |
-| Identity | Per-request `sagasmith.auth-context/v2`, target/audience bound | Signed v1 context, retained only for compatibility |
+| Identity | Per-request `sagasmith.auth-context/v2`, target/audience bound; requester authorizes, acting Host executes and is audited | Signed v1 context, retained only for compatibility |
 | Cross-call workflow | Explicit `exposure_handle` or campaign/revision parameters | Connection exposure adapter |
 | `tools/list` | Complete, sorted, private-cache scope, 300 s TTL | Exposure-filtered; real changes may send `tools/list_changed` |
 | Tool execution | Role, phase, revision, identity, and idempotency rechecked per call | Same authoritative handlers and checks |
@@ -16,9 +16,19 @@ exposure. A handle is only a server-issued name with an owner and expiry; it is
 not a capability. Shared HTTP pools may reuse sockets, but must not pool a
 principal, campaign, exposure, or authorization decision.
 
+For v2 calls, the signed `requester_principal` is always substituted for any
+model-authored tool principal before campaign role and actor-control checks.
+The separately signed `acting_host_principal` remains the authoritative actor
+in the receipt, so a hosted Agent cannot inherit the resource owner's role and
+the model cannot upgrade the requester by forging a tool argument.
+
 现代目录不会因其他请求打开或修改 exposure 而变化。handle 只是带 owner 与过期时间的
 服务器签发名称，不是 capability。HTTP 连接池可以复用连接，但不得池化 principal、
 campaign、exposure 或授权决定。
+
+v2 调用会在战役角色和角色控制权校验前，用签名的 `requester_principal` 覆盖模型提交的
+工具 principal；独立签名的 `acting_host_principal` 仍作为回执中的权威执行者。因此托管
+Agent 不会继承资源所有者权限，模型也无法伪造工具参数提升 requester 权限。
 
 ## Upgrade
 
