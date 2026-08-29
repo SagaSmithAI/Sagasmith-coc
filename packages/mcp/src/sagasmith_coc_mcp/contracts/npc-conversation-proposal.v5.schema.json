@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sagasmith.ai/contracts/coc/npc-conversation-proposal.v5.schema.json",
+  "type": "object",
+  "required": ["schema_version", "conversation_id", "activation_id", "actor_runtime_id", "response_bid", "utterance_segments", "proposed_action", "resolution_requests", "working_deltas"],
+  "properties": {
+    "schema_version": {"const": 5},
+    "conversation_id": {"type": "string"},
+    "activation_id": {"type": "string"},
+    "actor_runtime_id": {"type": "string"},
+    "response_bid": {"type": "object"},
+    "utterance_segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "content_mode", "basis_refs"],
+        "properties": {
+          "text": {"type": "string", "minLength": 1},
+          "content_mode": {"enum": ["nonfactual", "grounded", "deception", "uncertain"]},
+          "basis_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+        }
+      }
+    },
+    "proposed_action": {"type": "object"},
+    "resolution_requests": {"type": "array"},
+    "working_deltas": {"type": "object"}
+  }
+}

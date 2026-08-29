@@ -98,6 +98,10 @@ from sagasmith_coc.engine.sheet import (
     exact_sheet_value,
 )
 from sagasmith_coc.module_profile import CocModuleProfile
+from sagasmith_coc.playthrough import (
+    validate_playthrough_manifest,
+    validate_playthrough_transition,
+)
 from sagasmith_coc.random_stream import (
     CampaignRandomStream,
     initial_random_stream,
@@ -146,8 +150,10 @@ from sagasmith_core.auth_context import (
 )
 from sagasmith_core.integrity import canonical_json
 from sagasmith_core.modules import MarkdownModuleParser
+from sagasmith_core.retrieval import lexical_score
 from sagasmith_core.visibility import PLAYER_MODULE_VISIBILITY_SCOPES
 
+from .actor_memory import select_actor_memory_context
 from .bounded_evaluations import (
     BOUNDED_EVALUATION_PURPOSES,
     BOUNDED_OUTPUT_CONTRACTS,
@@ -281,6 +287,9 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
     "module_query": "Read bounded module, scene, retrieval, or compilation projections.",
     "module_change": "Apply an idempotent, authority-checked module or scene mutation.",
+    "playthrough_manifest": (
+        "Initialize or replace the validated branch-restorable authored/emergent campaign design."
+    ),
     "actor_knowledge_query": "Read audience-filtered facts known by one authoritative actor.",
     "actor_knowledge_change": (
         "Apply an idempotent actor-knowledge mutation with server-side authorization."
@@ -336,6 +345,7 @@ _TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     "content_pack": ("pack", "packs", "validation"),
     "module_query": ("module", "modules", "scene", "scenes", "hits", "progress"),
     "module_change": ("module", "scene", "progress"),
+    "playthrough_manifest": ("manifest", "changed"),
     "memory_query": ("memories", "next_cursor"),
     "memory_change": ("memory", "investigation"),
     "campaign_event": ("event", "events", "actor_knowledge_ids", "next_cursor"),
@@ -843,9 +853,7 @@ class RequestScopedMCPServer(MCPServer):
             verified = verify_auth_context(
                 envelope,
                 self._auth_context_secret,
-                expected_actor=(
-                    verified.authority_principal if modern else supplied_principal
-                ),
+                expected_actor=(verified.authority_principal if modern else supplied_principal),
                 expected_campaign=expected_campaign or None,
                 expected_service="sagasmith-coc-mcp" if modern else None,
                 expected_operation=name if modern else None,
@@ -866,9 +874,7 @@ class RequestScopedMCPServer(MCPServer):
                     if modern and arguments.get("acting_character_id")
                     else None
                 ),
-                expected_requester=(
-                    verified.authorization_principal if modern else None
-                ),
+                expected_requester=(verified.authorization_principal if modern else None),
             )
         except ValueError as exc:
             raise ExposureError(str(exc)) from exc
@@ -2269,6 +2275,153 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             storage.write_content_archive(package, blobs),
         )
 
+    def attest_playthrough_manifest(campaign_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Bind a playthrough manifest to active finalized Packs in this campaign."""
+
+        installed = {
+            str(item.get("id") or item.get("module_id") or ""): item
+            for item in modules.list(campaign_id, include_retired=True)
+        }
+        packs: list[tuple[dict[str, Any], dict[str, Any], set[str]]] = []
+        by_module_key: dict[str, str] = {}
+        atlas_scene_ids: set[str] = set()
+        for module_id, lineage in zip(
+            manifest["module_ids"], manifest["content_lineage"], strict=True
+        ):
+            module = installed.get(module_id)
+            if module is None:
+                raise ValueError(
+                    f"playthrough module {module_id!r} is not imported into this campaign"
+                )
+            if str(module.get("parser_profile") or "") != "content-package":
+                raise ValueError(
+                    f"playthrough module {module_id!r} is not a finalized content Pack"
+                )
+            if module.get("active") is not True:
+                raise ValueError(f"playthrough module {module_id!r} is not active")
+            package, _blobs, _artifact = module_archive(campaign_id, module_id)
+            content = dict(package.get("content") or {})
+            design = content.get("runtime_design")
+            if not isinstance(design, dict):
+                raise ValueError(
+                    f"playthrough module {module_id!r} has no validated runtime_design"
+                )
+            module_key = str(design.get("module_key") or "")
+            if module_key in by_module_key:
+                raise ValueError(f"runtime_design module_key is duplicated: {module_key}")
+            by_module_key[module_key] = module_id
+            scene_ids = [
+                str(scene.get("stable_key") or "")
+                for scene in list(content.get("scene_atlas") or [])
+                if isinstance(scene, dict)
+            ]
+            if not all(scene_ids) or scene_ids != lineage["scene_ids"]:
+                raise ValueError(
+                    f"content_lineage scene_ids for {module_id!r} must exactly match "
+                    "its Scene Atlas"
+                )
+            atlas_scene_ids.update(scene_ids)
+            packs.append((lineage, design, set(scene_ids)))
+
+        design_front_ids: set[str] = set()
+        design_thread_ids: set[str] = set()
+        design_arc_ids: set[str] = set()
+        arc_opportunity_ids: dict[str, set[str]] = {}
+        referenced_scene_ids: set[str] = set()
+        for lineage, design, _owned_scene_ids in packs:
+            design_lineage = dict(design.get("lineage") or {})
+            root_key = str(design_lineage.get("root_module_key") or "")
+            parent_key = str(design_lineage.get("parent_module_key") or "")
+            expected_root = by_module_key.get(root_key)
+            expected_parent = by_module_key.get(parent_key, "") if parent_key else ""
+            if expected_root is None or (parent_key and not expected_parent):
+                raise ValueError(
+                    "runtime_design lineage references a Pack outside this campaign line"
+                )
+            expected = {
+                "classification": str(design.get("classification") or ""),
+                "root_module_id": expected_root,
+                "parent_module_id": expected_parent,
+                "generation": design_lineage.get("generation"),
+            }
+            for field, value in expected.items():
+                if lineage[field] != value:
+                    raise ValueError(
+                        f"content_lineage {field} for {lineage['module_id']!r} "
+                        "does not match runtime_design"
+                    )
+            design_front_ids.update(str(item["id"]) for item in design["fronts"])
+            design_thread_ids.update(str(item["id"]) for item in design["story_threads"])
+            for arc in design["character_arcs"]:
+                arc_id = str(arc["id"])
+                design_arc_ids.add(arc_id)
+                arc_opportunity_ids.setdefault(arc_id, set()).update(
+                    str(item["id"]) for item in arc["opportunities"]
+                )
+                for opportunity in arc["opportunities"]:
+                    referenced_scene_ids.update(str(item) for item in opportunity["scene_ids"])
+            for clue in design["clues"]:
+                referenced_scene_ids.update(str(item) for item in clue["fallback_scene_ids"])
+            for signal in design["foreshadowing"]:
+                referenced_scene_ids.update(str(item) for item in signal["payoff_scene_ids"])
+            for branch in design["branches"]:
+                referenced_scene_ids.update(str(item) for item in branch["scene_ids"])
+            for link in design["scene_links"]:
+                referenced_scene_ids.update((str(link["from_scene_id"]), str(link["to_scene_id"])))
+        if unknown := sorted(referenced_scene_ids - atlas_scene_ids):
+            raise ValueError(
+                "runtime_design references scenes outside the attested Scene Atlas: "
+                + ", ".join(unknown)
+            )
+        for field, known in (
+            ("front_progress", design_front_ids),
+            ("thread_progress", design_thread_ids),
+            ("arc_progress", design_arc_ids),
+        ):
+            if unknown := sorted(item["id"] for item in manifest[field] if item["id"] not in known):
+                raise ValueError(
+                    f"{field} references unknown runtime_design ids: {', '.join(unknown)}"
+                )
+        for arc in manifest["arc_progress"]:
+            if unknown := sorted(
+                set(arc["completed_opportunity_ids"]) - arc_opportunity_ids.get(arc["id"], set())
+            ):
+                raise ValueError(
+                    f"arc_progress {arc['id']!r} references unknown opportunities: "
+                    + ", ".join(unknown)
+                )
+        return manifest
+
+    def require_playthrough_modules_survive(module_ids: set[str], *, operation: str) -> None:
+        """Reject Pack lifecycle writes that would invalidate a stored campaign line."""
+
+        if not module_ids:
+            return
+        references: list[tuple[str, str]] = []
+        for campaign in campaigns.list(system_id="coc7e"):
+            raw_manifest = dict(campaign.state or {}).get("playthrough_manifest")
+            if raw_manifest is None:
+                continue
+            if not isinstance(raw_manifest, dict) or not isinstance(
+                raw_manifest.get("module_ids"), list
+            ):
+                raise ValueError(
+                    "cannot change content Pack lifecycle while a playthrough manifest is invalid"
+                )
+            references.extend(
+                (campaign.id, str(module_id))
+                for module_id in raw_manifest["module_ids"]
+                if str(module_id) in module_ids
+            )
+        if references:
+            rendered = ", ".join(
+                f"{module_id} (campaign {campaign_id})" for campaign_id, module_id in references
+            )
+            raise ValueError(
+                f"cannot {operation} content Pack module(s) referenced by a playthrough "
+                f"manifest: {rendered}"
+            )
+
     def authoritative_random_resolution(
         *,
         campaign_id: str,
@@ -2397,7 +2550,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "npc_conversations": {
                 "schema_version": NPC_CONVERSATION_SCHEMA_VERSION,
                 "contract": NPC_CONVERSATION_CONTRACT,
-                "proposal_contract": "npc-conversation-proposal.v4",
+                "proposal_contract": "npc-conversation-proposal.v5",
                 "public_tool": "npc_conversation",
                 "host_transport": "private_authenticated_unlisted",
                 "host_transport_tool": "npc_conversation_transport",
@@ -2405,6 +2558,28 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 "symmetric_heard_statement_candidates": True,
                 "actor_safe_transcript_recall": True,
                 "terminal_journal_compaction": True,
+                "persistent_zero_tool_worker": True,
+                "refresh_replacement_preserves_stimulus": True,
+            },
+            "actor_memory": {
+                "contract": "actor-memory-context.v1",
+                "tracks": ["identity", "motivational", "semantic", "episodic"],
+                "actor_scoped_old_event_recall": True,
+                "branch_isolated": True,
+            },
+            "campaign_expansion": {
+                "purpose": "campaign_expansion",
+                "phase": "lobby",
+                "campaign_modes": [
+                    "authored_scenario",
+                    "authored_with_extensions",
+                    "emergent",
+                ],
+                "proposal_contract": "campaign-expansion-proposal.v1",
+                "review_only": True,
+                "may_write_state": False,
+                "authored_root_immutable": True,
+                "off_atlas_episode_classification": "emergent_episode",
             },
             "content_pack": {
                 "format": "sagasmith.content-package",
@@ -2478,6 +2653,85 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
     def game_phase(campaign_id: str, principal_id: str = "system:local") -> dict[str, str]:
         access.require_campaign(campaign_id, principal_id)
         return {"campaign_id": campaign_id, "phase": authoritative_phase(campaign_id)}
+
+    @mcp.tool()
+    def playthrough_manifest(
+        action: Literal["get", "initialize", "replace"],
+        campaign_id: str,
+        manifest: dict[str, Any] | None = None,
+        expected_revision: int | None = None,
+        idempotency_key: str | None = None,
+        principal_id: str = LOCAL_SYSTEM_PRINCIPAL_ID,
+    ) -> dict[str, Any]:
+        """Read or replace the branch-restorable campaign growth manifest."""
+
+        membership = access.require_campaign(campaign_id, principal_id)
+        campaign = campaigns.get(campaign_id)
+        current = dict(campaign.state or {}).get("playthrough_manifest")
+        if action == "get":
+            if current is None:
+                return {"manifest": None, "changed": False}
+            # Players may read only structural navigation, never Keeper design clocks.
+            validated = validate_playthrough_manifest(current)
+            if membership.role not in {"owner", "dm"}:
+                validated = {
+                    key: deepcopy(validated[key])
+                    for key in (
+                        "schema_version",
+                        "campaign_line_id",
+                        "campaign_mode",
+                        "module_ids",
+                        "current",
+                        "traversal",
+                    )
+                }
+            return {"manifest": validated, "changed": False}
+        require_dm(campaign_id, principal_id)
+        require_lobby(campaign_id, f"playthrough_manifest({action})")
+        if action not in {"initialize", "replace"}:
+            raise ValueError(f"unsupported playthrough_manifest action: {action}")
+        if action == "initialize" and current is not None:
+            raise ValueError("playthrough manifest is already initialized")
+        if action == "replace" and current is None:
+            raise ValueError("playthrough manifest must be initialized first")
+        if expected_revision is None or not str(idempotency_key or "").strip():
+            raise ValueError("expected_revision and idempotency_key are required")
+        validated = (
+            validate_playthrough_manifest(manifest)
+            if action == "initialize"
+            else validate_playthrough_transition(current, manifest)
+        )
+        validated = attest_playthrough_manifest(campaign_id, validated)
+        request = {"action": action, "manifest": validated, "expected_revision": expected_revision}
+        scope = (
+            f"playthrough-manifest:{campaign_id}:{current_branch_id(campaign_id)}:{principal_id}"
+        )
+        replay = replay_response(scope, str(idempotency_key), request)
+        if replay is not None:
+            return replay
+        campaign = require_campaign_revision(campaign_id, int(expected_revision))
+        branch_id_value = current_branch_id(campaign_id)
+        next_state = {**dict(campaign.state or {}), "playthrough_manifest": validated}
+        response = {
+            "manifest": deepcopy(validated),
+            "changed": True,
+            "campaign_revision": campaign.revision + 1,
+        }
+        StateMutationService(storage.database).replace(
+            campaign_id,
+            campaign_state=next_state,
+            expected_campaign_revision=campaign.revision,
+            operation=f"coc.playthrough_manifest.{action}",
+            actor=principal_id,
+            branch_id=branch_id_value,
+            idempotency_key=str(idempotency_key),
+            idempotency_write=IdempotencyWrite(
+                scope=scope,
+                payload=request,
+                response=response,
+            ),
+        )
+        return response
 
     @mcp.tool()
     def campaign_change(
@@ -4263,6 +4517,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     "manifest",
                     "metadata",
                     "narrative",
+                    "runtime_design",
                     "version",
                 }
                 decisions = {field: deepcopy(data[field]) for field in allowed if field in data}
@@ -4361,6 +4616,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             asset_loader=storage.read_managed_asset,
             blob_sink=lambda checksum, content: archive_blobs.__setitem__(checksum, content),
         )
+        if final_data.get("runtime_design") is not None:
+            descriptor["runtime_design"] = deepcopy(final_data["runtime_design"])
         package, blobs = build_module_content_package(descriptor, archive_blobs)
         stored = storage.write_content_archive(package, blobs)
         finalized = {
@@ -4697,6 +4954,23 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             raise LookupError(module_id)
         if str(module.get("parser_profile") or "") != "content-package":
             raise ValueError("only a module imported from a finalized Pack may be managed here")
+        if action in {"deactivate", "remove"}:
+            require_playthrough_modules_survive({module_id}, operation=action)
+        if action == "activate":
+            logical_source_key = str(
+                module.get("logical_source_key") or module.get("source_key") or ""
+            )
+            replaced_module_ids = {
+                str(item.get("id") or item.get("module_id") or "")
+                for item in modules.list(campaign_id, include_retired=True)
+                if item.get("active") is True
+                and str(item.get("id") or item.get("module_id") or "") != module_id
+                and str(item.get("logical_source_key") or item.get("source_key") or "")
+                == logical_source_key
+            }
+            require_playthrough_modules_survive(
+                replaced_module_ids, operation="activate a replacement for"
+            )
         if action == "activate":
             raw_remaps = data.get("progress_remaps") or []
             if not isinstance(raw_remaps, list):
@@ -4824,7 +5098,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "idempotency_key": idempotency_key,
             "principal_id": principal_id,
         }
-        if action == "import":
+        if action in {"import", "activate", "deactivate", "remove"}:
             with storage.database.transaction():
                 return _content_pack(**arguments)
         return _content_pack(**arguments)
@@ -5298,6 +5572,115 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         )
         return {**asdict(created), "actor_knowledge_ids": []}
 
+    def build_actor_memory_context(
+        campaign_id: str,
+        *,
+        actor_id: str,
+        branch_id: str,
+        query: str,
+        current_refs: list[str],
+        budget_chars: int,
+        principal_id: str,
+    ) -> dict[str, Any]:
+        """Build one disclosure-safe investigator/NPC view, including older episodes."""
+
+        actor_access(campaign_id, actor_id, principal_id)
+        actor = characters.get(actor_id)
+        if actor.campaign_id != campaign_id:
+            raise ValueError("actor memory subject must belong to the campaign")
+        keeper = is_dm(campaign_id, principal_id)
+        disclosure_scopes = (
+            {"dm", "owner", "party", "public", "player"}
+            if keeper
+            else {"owner", "party", "public", "player"}
+        )
+        memory_disclosure_scopes = (
+            {"dm", "party", "public", "player"} if keeper else {"party", "public", "player"}
+        )
+        actor_state_facts = [
+            item
+            for item in memories.list_for_subject_refs(
+                campaign_id,
+                subject_refs={f"actor:{actor_id}"},
+                branch_id=branch_id,
+            )
+            if item.disclosure_scope in memory_disclosure_scopes
+        ]
+        # Core enforces disclosure at the storage query entrance, before lexical
+        # ranking or budgeting.  Keep the defensive predicate for older local
+        # Core checkouts used by downstream developers.
+        actor_knowledge = [
+            item
+            for item in knowledge.list(
+                campaign_id,
+                actor_id=actor_id,
+                branch_id=branch_id,
+                include_inactive=False,
+                disclosure_scopes=disclosure_scopes,
+            )
+            if item.disclosure_scope in disclosure_scopes
+        ]
+        normalized_query = str(query or "").strip()
+        if normalized_query:
+            actor_knowledge.sort(
+                key=lambda item: (
+                    -lexical_score(
+                        normalized_query,
+                        title=item.knowledge_key,
+                        content=item.proposition,
+                    )
+                )
+            )
+        event_audience = "dm" if keeper else "player"
+        recent_events = events.list_for_actor(
+            campaign_id,
+            actor_id=actor_id,
+            knowledge_disclosure_scopes=disclosure_scopes,
+            audience=event_audience,
+            limit=200,
+            branch_id=branch_id,
+        )
+        older_matches = (
+            events.search_for_actor(
+                campaign_id,
+                actor_id=actor_id,
+                query=normalized_query,
+                knowledge_disclosure_scopes=disclosure_scopes,
+                audience=event_audience,
+                limit=100,
+                branch_id=branch_id,
+            )
+            if normalized_query
+            else []
+        )
+        if not keeper:
+            older_matches = [
+                item
+                for item in older_matches
+                if item.audience_scope in {"public", "party", "actor"}
+            ]
+        by_event_id = {item.id: item for item in [*recent_events, *older_matches]}
+        actor_record = asdict(actor)
+        sheet = dict(actor_record.get("sheet") or {})
+        actor_projection = {
+            key: deepcopy(actor_record.get(key))
+            for key in ("id", "name", "player_name", "character_type", "summary")
+        }
+        actor_projection["sheet_identity"] = {
+            key: deepcopy(sheet[key])
+            for key in ("occupation", "age", "sex", "residence", "birthplace", "pronouns")
+            if key in sheet
+        }
+        actor_projection["facts"] = [asdict(item) for item in actor_state_facts]
+        return select_actor_memory_context(
+            actor_state=actor_projection,
+            actor_knowledge=[asdict(item) for item in actor_knowledge],
+            events=[asdict(item) for item in by_event_id.values()],
+            current_refs=current_refs,
+            query=normalized_query,
+            budget_chars=budget_chars,
+        )
+
     @mcp.tool()
     def continuity_context(
         campaign_id: str,
@@ -5310,9 +5693,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         budget_chars: int = 12_000,
         related_refs: list[str] | None = None,
         purpose: Literal[
+            "actor_memory",
             "actor_turn",
             "audience_render",
             "faction_turn",
+            "campaign_expansion",
             "source_interpretation",
             "bounded_ruling",
         ]
@@ -5345,9 +5730,36 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         )
         if purpose is None:
             return result
+        if purpose == "actor_memory":
+            if not actor_id:
+                raise ValueError("actor_id is required for actor_memory")
+            return {
+                "schema_version": 1,
+                "purpose": "actor_memory",
+                "campaign_id": campaign_id,
+                "branch_id": resolved_branch,
+                "actor_id": actor_id,
+                "memory": build_actor_memory_context(
+                    campaign_id,
+                    actor_id=actor_id,
+                    branch_id=resolved_branch,
+                    query=str(query or ""),
+                    current_refs=list(related_refs or []),
+                    budget_chars=min(int(budget_chars), 12_000),
+                    principal_id=principal_id,
+                ),
+            }
         if purpose not in BOUNDED_EVALUATION_PURPOSES:
             raise ValueError(f"unsupported bounded evaluation purpose: {purpose}")
-        if purpose in {"actor_turn", "faction_turn", "source_interpretation", "bounded_ruling"}:
+        if purpose == "campaign_expansion" and membership.role not in {"owner", "dm"}:
+            raise PermissionError("campaign expansion is available only to the Keeper")
+        if purpose in {
+            "actor_turn",
+            "faction_turn",
+            "campaign_expansion",
+            "source_interpretation",
+            "bounded_ruling",
+        }:
             require_dm(campaign_id, principal_id)
         if purpose in {"actor_turn", "audience_render", "faction_turn"} and authoritative_phase(
             campaign_id
@@ -5374,6 +5786,18 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             resolved_subject_ref = f"actor:{actor.id}"
             actor_revision = actor.revision
             subject = {"kind": "actor", "id": actor.id, "name": actor.name}
+            result = {
+                **result,
+                "actor_memory": build_actor_memory_context(
+                    campaign_id,
+                    actor_id=actor.id,
+                    branch_id=resolved_branch,
+                    query=str(query or ""),
+                    current_refs=list(related_refs or []),
+                    budget_chars=min(int(budget_chars), 8_000),
+                    principal_id=principal_id,
+                ),
+            }
         elif purpose == "faction_turn":
             if not resolved_subject_ref.startswith("faction:"):
                 raise ValueError("faction_turn requires subject_ref='faction:<id>'")
@@ -5392,6 +5816,29 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 "kind": "faction",
                 "id": resolved_subject_ref.removeprefix("faction:"),
                 "name": resolved_subject_ref.removeprefix("faction:"),
+            }
+        elif purpose == "campaign_expansion":
+            require_lobby(campaign_id, "campaign_expansion")
+            manifest = validate_playthrough_manifest(
+                dict(campaigns.get(campaign_id).state or {}).get("playthrough_manifest")
+            )
+            campaign_line_id = manifest["campaign_line_id"]
+            resolved_subject_ref = f"campaign_line:{campaign_line_id}"
+            subject = {
+                "kind": "campaign_line",
+                "id": campaign_line_id,
+                "name": campaign_line_id,
+            }
+            design_ref = (
+                f"campaign-design:{campaign_id}:{resolved_branch}:"
+                f"{campaigns.get(campaign_id).revision}"
+            )
+            result = {
+                **result,
+                "campaign_design": {
+                    **deepcopy(manifest),
+                    "basis_ref": design_ref,
+                },
             }
         else:
             resolved_subject_ref = resolved_subject_ref or f"campaign:{campaign_id}"
@@ -5416,6 +5863,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         campaign = campaigns.get(campaign_id)
         bundle_id = f"bounded:{uuid4().hex}"
         issued_ns = time.monotonic_ns()
+        allowed_basis_refs = (
+            [str(result["campaign_design"]["basis_ref"])] if purpose == "campaign_expansion" else []
+        )
         receipt_payload = {
             "schema_version": 1,
             "bundle_id": bundle_id,
@@ -5426,8 +5876,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "actor_revision": actor_revision,
             "subject_ref": resolved_subject_ref,
             "principal_fingerprint": principal_fingerprint(principal_id),
-            "allowed_basis_refs": [],
-            "allowed_claim_basis_refs": [],
+            "allowed_basis_refs": allowed_basis_refs,
+            "allowed_claim_basis_refs": allowed_basis_refs,
             "allowed_target_refs": target_refs,
             "context_request": context_request,
             "context_digest": bounded_context_digest(result),
@@ -5442,7 +5892,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "stimulus": deepcopy(stimulus),
             "context": result,
             "constraints": {
-                "allowed_basis_refs": [],
+                "allowed_basis_refs": allowed_basis_refs,
                 "allowed_target_refs": target_refs,
                 "may_roll_dice": False,
                 "may_call_tools": False,
@@ -5516,6 +5966,33 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             budget_chars=int(context_request.get("budget_chars", 12_000)),
             related_refs=list(context_request.get("related_refs") or []),
         )
+        if purpose in {"actor_turn", "audience_render"} and subject_ref_value.startswith("actor:"):
+            refreshed = {
+                **refreshed,
+                "actor_memory": build_actor_memory_context(
+                    campaign_id,
+                    actor_id=subject_ref_value.removeprefix("actor:"),
+                    branch_id=str(context_request.get("branch_id") or ""),
+                    query=str(context_request.get("query") or ""),
+                    current_refs=list(context_request.get("related_refs") or []),
+                    budget_chars=min(int(context_request.get("budget_chars", 12_000)), 8_000),
+                    principal_id=principal_id,
+                ),
+            }
+        elif purpose == "campaign_expansion":
+            manifest = validate_playthrough_manifest(
+                dict(campaign.state or {}).get("playthrough_manifest")
+            )
+            refreshed = {
+                **refreshed,
+                "campaign_design": {
+                    **deepcopy(manifest),
+                    "basis_ref": (
+                        f"campaign-design:{campaign_id}:{current_branch_id(campaign_id)}:"
+                        f"{campaign.revision}"
+                    ),
+                },
+            }
         if bounded_context_digest(refreshed) != str(receipt.get("context_digest") or ""):
             raise ValueError("bounded evaluation receipt is stale after continuity changed")
         normalized = normalize_bounded_proposal(purpose, proposal)
@@ -5678,6 +6155,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         actor: Any,
         participant_ids: list[str],
         query: str,
+        principal_id: str,
     ) -> dict[str, Any]:
         context_request = {
             "query": query,
@@ -5707,6 +6185,16 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         context["facts"].extend(
             item for item in commitments if str(item.get("id") or "") not in existing_fact_ids
         )
+        actor_memory = build_actor_memory_context(
+            campaign_id,
+            actor_id=actor.id,
+            branch_id=branch_id,
+            query=query,
+            current_refs=[f"actor:{item}" for item in participant_ids],
+            budget_chars=8_000,
+            principal_id=principal_id,
+        )
+        context["actor_memory"] = actor_memory
         allowed_basis_refs = sorted(
             {
                 *(
@@ -5720,6 +6208,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     if item.get("id") and item.get("revision_id")
                 ),
                 *(f"event:{item['id']}" for item in context.get("events") or [] if item.get("id")),
+                *(
+                    str(item["basis_ref"])
+                    for track in ("identity", "motivational", "semantic", "episodic")
+                    for item in actor_memory[track]
+                ),
             }
         )
         bundle = {
@@ -5743,7 +6236,14 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 "may_call_tools": False,
                 "may_roll_dice": False,
                 "may_write_state": False,
-                "output_contract": "npc-conversation-proposal.v4",
+                "utterance_content_modes": [
+                    "nonfactual",
+                    "grounded",
+                    "deception",
+                    "uncertain",
+                ],
+                "factual_content_requires_actor_owned_basis_refs": True,
+                "output_contract": "npc-conversation-proposal.v5",
             },
             "delegation": {
                 "schema_version": 1,
@@ -5807,6 +6307,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     actor,
                     list(session["participant_ids"]),
                     str(request.get("query") or ""),
+                    str(session["principal_id"]),
                 )
                 runtime["actor_runtime_id"] = (
                     f"{session['conversation_id']}:{actor_id}:r{actor.revision}:"
@@ -5815,13 +6316,29 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 runtime["working_state_revision"] = (
                     int(runtime.get("working_state_revision", 0)) + 1
                 )
-                for activation in session["activations"].values():
+                replacement_activations = []
+                for activation in list(session["activations"].values()):
                     if activation["actor_id"] == actor_id and activation["status"] in {
                         "pending",
                         "claimed",
                     }:
+                        replacement = {
+                            "activation_id": str(uuid4()),
+                            "actor_runtime_id": runtime["actor_runtime_id"],
+                            "actor_id": str(actor_id),
+                            "reason": str(activation["reason"]),
+                            "response_required": bool(activation["response_required"]),
+                            "from_cursor": int(activation["from_cursor"]),
+                            "to_cursor": int(activation["to_cursor"]),
+                            "status": "pending",
+                            "lease": None,
+                            "replacement_for": str(activation["activation_id"]),
+                        }
                         activation["status"] = "invalidated"
                         activation["lease"] = None
+                        replacement_activations.append(replacement)
+                for replacement in replacement_activations:
+                    session["activations"][replacement["activation_id"]] = replacement
                 invalidated_activation_ids = {
                     str(activation["activation_id"])
                     for activation in session["activations"].values()
@@ -6114,6 +6631,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     actor,
                     participant_ids,
                     str(data.get("query") or ""),
+                    principal_id,
                 )
                 contexts[actor.id] = context
             return npc_conversations.open(
@@ -6346,6 +6864,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         actor_access(campaign_id, actor_id, principal_id)
         data = dict(data or {})
         branch_id = readable_branch_id(campaign_id, data.get("branch_id"), principal_id)
+        disclosure_scopes = (
+            {"dm", "owner", "party", "public", "player"}
+            if is_dm(campaign_id, principal_id)
+            else {"owner", "party", "public", "player"}
+        )
         effective_query = query or str(data.get("query") or "").strip()
         page_limit = int(data.get("limit", limit))
         page_cursor = cursor or data.get("cursor")
@@ -6357,6 +6880,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 branch_id=branch_id,
                 limit=100,
                 include_inactive=bool(data.get("include_inactive", False)),
+                disclosure_scopes=disclosure_scopes,
             )
             if action == "search"
             else knowledge.list(
@@ -6364,10 +6888,10 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 actor_id=actor_id,
                 branch_id=branch_id,
                 include_inactive=bool(data.get("include_inactive", False)),
+                disclosure_scopes=disclosure_scopes,
             )
         )
-        if not is_dm(campaign_id, principal_id):
-            values = [item for item in values if item.disclosure_scope in {"owner", "public"}]
+        values = [item for item in values if item.disclosure_scope in disclosure_scopes]
         page, next_cursor, has_more = _filtered_page(
             [asdict(item) for item in values],
             query=("" if action == "search" else effective_query),

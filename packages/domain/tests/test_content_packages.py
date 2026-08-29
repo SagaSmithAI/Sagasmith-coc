@@ -173,12 +173,34 @@ def test_reviewed_scenario_compiles_to_round_trip_v2_pack(database: Database) ->
             },
         },
     )
+    descriptor["runtime_design"] = {
+        "schema_version": 2,
+        "module_key": "lantern-case-seed",
+        "classification": "emergent_seed",
+        "lineage": {
+            "root_module_key": "lantern-case-seed",
+            "parent_module_key": "",
+            "generation": 0,
+        },
+        "entities": [],
+        "secrets": [],
+        "clues": [],
+        "plot_nodes": [],
+        "foreshadowing": [],
+        "branches": [],
+        "fronts": [],
+        "story_threads": [],
+        "character_arcs": [],
+        "scene_links": [],
+    }
 
     package, blobs = build_module_content_package(descriptor, {})
     assert package["format"] == "sagasmith.content-package"
     assert package["schema_version"] == 2
     assert package["system_id"] == "coc7e"
     assert package["kind"] == "module"
+    assert package["content"]["classification"] == "scenario"
+    assert package["content"]["runtime_design"]["classification"] == "emergent_seed"
     assert package["content"]["scene_atlas"][0]["stable_key"] == scene["stable_key"]
     assert "profile_data" in package["content"]["scene_atlas"][0]["metadata"]
     imported_campaign = CampaignService(database).create(

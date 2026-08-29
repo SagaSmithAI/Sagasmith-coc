@@ -38,6 +38,9 @@ sagasmith_coc MCP server. A host may prefix raw native tool names.
 
 Module construction uses the repository-local coc-module-generator Skill
 through this MCP's module_draft and content_pack tools.
+For emergent play or a reasonable authored-scenario detour beyond the Scene
+Atlas, return to Lobby and follow
+`../coc-module-generator/references/emergent-campaign.md`.
 
 ## One authority per concern
 
@@ -77,6 +80,10 @@ through this MCP's module_draft and content_pack tools.
 - Objective durable truth belongs to memory. Chronology belongs to campaign
   events. Subjective information belongs to ActorKnowledge for one actor.
   Scoped discoveries/progress belong to module scene state.
+- For long-running investigators and NPCs, request
+  `continuity_context(purpose="actor_memory")`. Its identity, motivational,
+  semantic, and episodic tracks are a bounded branch-local projection, never a
+  second ledger or a source of human investigator intent.
 - Player-visible responses must be computed from the authenticated audience.
   Never expose Keeper scenes, other actors' private knowledge, raw continuity
   context, or secret Pack fields.
@@ -85,8 +92,10 @@ through this MCP's module_draft and content_pack tools.
   never relay private capsules or raw proposals, and close or abort before
   phase/encounter changes.
 - Use signed continuity_context bundles plus bounded_evaluation for tool-free
-  actor, faction, source, ruling, or audience proposals. Validation never writes
-  state and actor_turn must never replace a human investigator choice.
+  actor, faction, campaign-expansion, source, ruling, or audience proposals.
+  Validation never writes state and actor_turn must never replace a human
+  investigator choice. Expansion workers have zero tools and only propose;
+  Keeper review, authoring, activation, and MCP settlement are separate gates.
 - Commercial rules and scenarios are not bundled. Import only user-authorized
   local files, preserve citations/checksums, and never commit private source
   text or generated private Pack archives.
@@ -121,6 +130,6 @@ switch:
 4. Use exposure search/set on the current binding for the next legal tools.
 5. Reopen exposure only for a genuinely different campaign/principal binding.
 
-Read references/mcp-contract.md for the current 51-tool surface,
+Read references/mcp-contract.md for the current 52-tool surface,
 references/workflows.md for ordered end-to-end flows, and
 references/memory-ownership.md before writing continuity.

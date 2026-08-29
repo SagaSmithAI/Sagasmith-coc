@@ -55,6 +55,7 @@ PHASE_TOOLS = {
         bounded_evaluation
         development_query development_settle
         content_pack inventory_change long_term_change module_change module_draft module_query
+        playthrough_manifest
         rule_query rulebook_draft wallet_change
         snapshot_change snapshot_query
         """
@@ -90,6 +91,7 @@ PHASE_DM_TOOLS = {
         long_term_change rulebook_draft
         memory_change memory_query
         module_change module_draft snapshot_change snapshot_query state_revision
+        playthrough_manifest
         """
     ),
     PROFILE_PLAY: _names(
