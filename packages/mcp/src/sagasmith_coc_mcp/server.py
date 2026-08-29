@@ -190,6 +190,312 @@ SearchText = Annotated[
 ]
 PageItem = TypeVar("PageItem")
 
+_MAX_ARGUMENT_BYTES = 262_144
+_MAX_COLLECTION_ITEMS = 1_000
+_PARAMETER_DESCRIPTIONS: dict[str, str] = {
+    "action": (
+        "Exact operation supported by this facade; use the tool description and validation "
+        "error to choose a value."
+    ),
+    "actor_id": "Authoritative campaign actor identifier targeted by the operation.",
+    "acting_character_id": (
+        "Character identity delegated by the Host; never inferred from player text."
+    ),
+    "audience": "Audience scope used to filter private campaign information.",
+    "bonus_dice": "Number of CoC bonus dice to apply to the percentile roll.",
+    "branch_id": "Authoritative timeline branch identifier.",
+    "budget_chars": "Maximum characters in the returned context bundle.",
+    "bundle_receipt": "Opaque receipt returned with the continuity bundle being evaluated.",
+    "campaign_id": "Authoritative campaign identifier; required for campaign-scoped operations.",
+    "character_id": "Authoritative investigator or NPC character identifier.",
+    "context": "Short source-explicit narrative context for this operation.",
+    "cursor": "Opaque continuation cursor from the preceding response; do not construct it.",
+    "data": "Operation-specific bounded object described by the selected action.",
+    "evaluation_target_refs": "Bounded authority references the proposal is allowed to evaluate.",
+    "expected_branch_id": "Branch guard that must match the current authoritative branch.",
+    "expected_character_revision": "Character revision guard used to reject stale mutations.",
+    "expected_character_revisions": (
+        "Actor-to-revision guards used to reject stale group mutations."
+    ),
+    "expected_revision": "Campaign base revision guard used to reject stale mutations.",
+    "exposure_handle": (
+        "Opaque server-issued catalog-guidance handle owned by the caller and subject to expiry."
+    ),
+    "expression": "Bounded dice expression accepted by the CoC dice engine.",
+    "failure_loss": "Source-backed SAN loss expression for a failed check.",
+    "goal": "Short description of the intended group check outcome.",
+    "grid_metric": "Distance metric used by the optional combat grid.",
+    "grid_unit_feet": "Number of feet represented by one grid unit.",
+    "host_token": "Host-private transport token; never supplied by the model.",
+    "idempotency_key": "Stable business-operation key reused unchanged across retries.",
+    "interlocutor_actor_ids": "Bounded actor identifiers participating in the conversation.",
+    "kind": "Exact resolution or dice mode supported by this tool.",
+    "limit": "Maximum records to return in this bounded page (1 through 100).",
+    "outcome": "Source-explicit terminal outcome recorded for the encounter.",
+    "participant_actor_ids": "Bounded unique actor identifiers participating in the group action.",
+    "participants": "Bounded participant definitions used to initialize the encounter.",
+    "payload": "Host-private bounded transport payload.",
+    "penalty_dice": "Number of CoC penalty dice to apply to the percentile roll.",
+    "positioning_mode": "Authoritative encounter positioning mode.",
+    "principal_id": (
+        "Caller principal hint; modern requests overwrite it from signed Host delegation."
+    ),
+    "proposal": "Bounded tool-free semantic proposal to validate against the supplied receipt.",
+    "purpose": "Declared retrieval purpose used to select and audit context.",
+    "query": "Case-insensitive bounded search text; empty matches all permitted records.",
+    "related_refs": "Bounded authority references related to the retrieval subject.",
+    "remove_tool_ids": "Bounded tool identifiers to remove from a legacy compatibility exposure.",
+    "add_tool_ids": "Bounded tool identifiers to add to a legacy compatibility exposure.",
+    "route": "Bounded source-backed chase route definition.",
+    "scope_id": "Optional authoritative scene, investigation, or scope identifier.",
+    "selected_actor_id": "Actor selected from the authoritative eligible candidate set.",
+    "skill_id": "Canonical CoC skill identifier.",
+    "source": "Concise rules or narrative source supporting the authoritative change.",
+    "stimulus": "Bounded current stimulus relevant to continuity retrieval.",
+    "subject_ref": "Authority reference for the primary retrieval subject.",
+    "success_loss": "Source-backed SAN loss expression for a successful check.",
+    "view": "Named bounded projection of the requested records.",
+}
+
+_TOOL_DESCRIPTIONS: dict[str, str] = {
+    "server_capabilities": (
+        "Describe the CoC MCP protocol, transport, authority, and catalog contracts."
+    ),
+    "storage_status": (
+        "Report the configured authoritative storage backend without exposing credentials."
+    ),
+    "campaign_query": (
+        "List or read audience-authorized campaigns with bounded filtering and pagination."
+    ),
+    "game_phase": "Read the authoritative phase and revision for one authorized campaign.",
+    "campaign_change": (
+        "Create or atomically update campaign metadata under idempotency and revision guards."
+    ),
+    "character_query": (
+        "List, search, or read audience-authorized investigators with bounded pagination."
+    ),
+    "character_change": (
+        "Create or atomically update an investigator under campaign authority guards."
+    ),
+    "module_query": "Read bounded module, scene, retrieval, or compilation projections.",
+    "module_change": "Apply an idempotent, authority-checked module or scene mutation.",
+    "actor_knowledge_query": "Read audience-filtered facts known by one authoritative actor.",
+    "actor_knowledge_change": (
+        "Apply an idempotent actor-knowledge mutation with server-side authorization."
+    ),
+    "coc_resolve": (
+        "Run one authoritative CoC resolution workflow and persist its idempotent receipt."
+    ),
+    "skill_query": "List, search, or read canonical CoC skills with bounded pagination.",
+}
+
+_COMMON_OUTPUT_FIELDS = (
+    "campaign_id",
+    "campaign_revision",
+    "character_revision",
+    "branch_id",
+    "status",
+    "phase",
+    "receipt",
+    "idempotent_replay",
+    "host_context_binding",
+)
+_TOOL_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
+    "server_capabilities": (
+        "server",
+        "system",
+        "version",
+        "authoritative_contract",
+        "tool_catalog",
+    ),
+    "storage_status": ("backend", "ready", "database"),
+    "resolution_presentation": ("resolution", "audience", "artifacts"),
+    "campaign_query": ("campaign", "campaigns", "next_cursor"),
+    "game_phase": ("phase", "revision"),
+    "campaign_change": ("campaign", "created", "updated"),
+    "character_query": ("character", "characters", "next_cursor"),
+    "character_change": ("character", "created", "updated"),
+    "inventory_change": ("character", "inventory", "item"),
+    "wallet_change": ("character", "wallet", "field"),
+    "long_term_change": ("character", "changes", "source"),
+    "rulebook_draft": ("job", "jobs", "source", "chunks", "hits"),
+    "rule_query": ("hits", "sources", "ruleset"),
+    "module_draft": ("job", "jobs", "artifact", "inspection", "validation", "assets"),
+    "content_pack": ("pack", "packs", "validation"),
+    "module_query": ("module", "modules", "scene", "scenes", "hits", "progress"),
+    "module_change": ("module", "scene", "progress"),
+    "memory_query": ("memories", "next_cursor"),
+    "memory_change": ("memory", "investigation"),
+    "campaign_event": ("event", "events", "actor_knowledge_ids", "next_cursor"),
+    "continuity_context": ("bundle_id", "bundle_receipt", "context", "constraints", "delegation"),
+    "bounded_evaluation": ("accepted", "violations", "normalized_proposal"),
+    "npc_conversation": ("conversation", "conversations", "response"),
+    "npc_conversation_transport": ("conversation", "response"),
+    "actor_knowledge_query": ("knowledge", "next_cursor"),
+    "actor_knowledge_change": ("knowledge", "changed"),
+    "branch_query": ("branch", "branches", "comparison"),
+    "branch_change": ("branch", "snapshot"),
+    "snapshot_query": ("snapshot", "snapshots", "slot", "valid"),
+    "snapshot_change": ("snapshot", "restored"),
+    "state_revision": ("revision", "revisions", "receipt"),
+    "coc_dice_roll": ("roll", "result", "random_receipt"),
+    "development_query": ("actor_id", "pending"),
+    "development_settle": ("actor", "results", "rolls"),
+    "group_luck_query": ("candidates", "lowest_luck"),
+    "group_luck_check": ("selected_actor_id", "roll", "result"),
+    "investigation_query": ("pending", "history", "next_cursor"),
+    "investigation_check": ("investigation", "choice", "result"),
+    "coc_sanity_check": ("sanity", "roll", "loss"),
+    "coc_hp_change": ("character", "hit_points", "condition"),
+    "chase_start": ("chase", "participants"),
+    "chase_query": ("chase", "legal_actions"),
+    "chase_action": ("chase", "action", "roll"),
+    "chase_end": ("chase", "outcome"),
+    "combat_start": ("combat", "participants"),
+    "combat_query": ("combat", "legal_actions"),
+    "combat_action": ("combat", "action"),
+    "combat_attack": ("combat", "attack", "choice"),
+    "combat_end": ("combat", "outcome"),
+    "coc_resolve": ("resolution", "roll", "result"),
+    "skill_query": ("skill", "skills", "content", "next_cursor"),
+    "exposure": ("exposure_handle", "matches", "next_cursor", "changed", "catalog_effect"),
+}
+
+
+def _argument_error(code: str, message: str, *, retryable: bool, recovery: str) -> dict[str, Any]:
+    return {
+        "error": {"code": code, "message": message, "retryable": retryable, "recovery": recovery}
+    }
+
+
+def _classify_tool_error(message: str) -> dict[str, Any]:
+    normalized = message.casefold()
+    if "stale" in normalized or "revision" in normalized and "match" in normalized:
+        return _argument_error(
+            "stale_revision",
+            message,
+            retryable=True,
+            recovery=(
+                "Read the current authoritative revision, rebuild the proposal, and retry with "
+                "the same idempotency key."
+            ),
+        )
+    if "expired" in normalized and ("handle" in normalized or "exposure" in normalized):
+        return _argument_error(
+            "expired_handle",
+            message,
+            retryable=True,
+            recovery=(
+                "Open a new server-issued handle, then retry the read with the returned handle."
+            ),
+        )
+    if "permission" in normalized or "authorized" in normalized or "principal" in normalized:
+        return _argument_error(
+            "permission_denied",
+            message,
+            retryable=False,
+            recovery=(
+                "Ask the Host to obtain a fresh delegation for this exact campaign, audience, "
+                "and operation."
+            ),
+        )
+    if "not found" in normalized or "unknown" in normalized:
+        return _argument_error(
+            "not_found",
+            message,
+            retryable=False,
+            recovery=(
+                "List or query the relevant authorized records and retry with an existing "
+                "identifier."
+            ),
+        )
+    if (
+        "required" in normalized
+        or "invalid" in normalized
+        or "must" in normalized
+        or "unsupported" in normalized
+    ):
+        return _argument_error(
+            "invalid_argument",
+            message,
+            retryable=False,
+            recovery=(
+                "Correct the named argument using the tool input schema, then call the tool again."
+            ),
+        )
+    return _argument_error(
+        "tool_execution_failed",
+        message,
+        retryable=False,
+        recovery=(
+            "Inspect the safe error message and current authoritative state before deciding "
+            "whether to retry."
+        ),
+    )
+
+
+def _validate_contract_arguments(arguments: Mapping[str, Any]) -> None:
+    try:
+        encoded_size = len(
+            json.dumps(arguments, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("tool arguments must be a bounded JSON object") from exc
+    if encoded_size > _MAX_ARGUMENT_BYTES:
+        raise ValueError(f"tool arguments exceed the {_MAX_ARGUMENT_BYTES}-byte request limit")
+
+    def visit(value: Any, *, depth: int = 0) -> None:
+        if depth > 12:
+            raise ValueError("tool arguments exceed the maximum nesting depth of 12")
+        if isinstance(value, Mapping):
+            if len(value) > _MAX_COLLECTION_ITEMS:
+                raise ValueError("tool argument object has too many fields")
+            for nested in value.values():
+                visit(nested, depth=depth + 1)
+        elif isinstance(value, list | tuple):
+            if len(value) > _MAX_COLLECTION_ITEMS:
+                raise ValueError("tool argument collection exceeds 1000 items")
+            for nested in value:
+                visit(nested, depth=depth + 1)
+        elif isinstance(value, str) and len(value) > 65_536:
+            raise ValueError("tool argument string exceeds 65536 characters")
+
+    visit(arguments)
+    if "limit" in arguments:
+        limit = arguments["limit"]
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100")
+
+
+def _output_schema(tool_name: str) -> dict[str, Any]:
+    fields = dict.fromkeys(
+        (*_COMMON_OUTPUT_FIELDS, *_TOOL_OUTPUT_FIELDS.get(tool_name, ("result",)))
+    )
+    properties = {
+        name: {"description": f"Authoritative {name.replace('_', ' ')} returned by {tool_name}."}
+        for name in fields
+    }
+    properties["error"] = {
+        "type": "object",
+        "description": (
+            "Safe, actionable tool-execution error; protocol errors remain JSON-RPC errors."
+        ),
+        "required": ["code", "message", "retryable", "recovery"],
+        "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+            "retryable": {"type": "boolean"},
+            "recovery": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "description": f"Structured authoritative result for the {tool_name} tool.",
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
 
 def _bounded_page(
     values: list[PageItem],
@@ -513,6 +819,20 @@ class RequestScopedMCPServer(MCPServer):
         """Record only bounded protocol/tool/outcome labels."""
 
         result = await super()._handle_call_tool(ctx, params)
+        if (
+            isinstance(result, CallToolResult)
+            and result.is_error
+            and result.structured_content is None
+        ):
+            message = next(
+                (
+                    item.text
+                    for item in result.content
+                    if isinstance(item, TextContent) and item.text.strip()
+                ),
+                "Tool execution failed.",
+            )
+            result = result.model_copy(update={"structured_content": _classify_tool_error(message)})
         era = "modern" if ctx.protocol_version == "2026-07-28" else "legacy"
         outcome = "error" if isinstance(result, CallToolResult) and result.is_error else "success"
         self._metric_counts[("tool", era, params.name, outcome)] += 1
@@ -562,6 +882,10 @@ class RequestScopedMCPServer(MCPServer):
         """Revalidate identity, campaign scope, phase, and revision per call."""
 
         arguments = dict(arguments or {})
+        try:
+            _validate_contract_arguments(arguments)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
         arguments = self._bind_configured_principal(name, arguments)
         if name in HOST_PRIVATE_TOOLS:
             return await super().call_tool(name, arguments, context)
@@ -8458,6 +8782,36 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
     validate_profile_coverage(tool.name for tool in registered_tools)
     for registered_tool in registered_tools:
         tool_name = registered_tool.name
+        if not registered_tool.description.strip():
+            registered_tool.description = _TOOL_DESCRIPTIONS[tool_name]
+        parameters = deepcopy(registered_tool.parameters)
+        parameter_properties = parameters.get("properties") or {}
+        for parameter_name, parameter_schema in parameter_properties.items():
+            parameter_schema.setdefault(
+                "description",
+                _PARAMETER_DESCRIPTIONS.get(
+                    parameter_name,
+                    f"Bounded {parameter_name.replace('_', ' ')} value for {tool_name}.",
+                ),
+            )
+            if parameter_name == "limit":
+                parameter_schema.update({"minimum": 1, "maximum": 100})
+            elif parameter_name == "cursor":
+                parameter_schema.setdefault("maxLength", 32)
+            elif parameter_name in {"query", "goal", "purpose", "view"}:
+                parameter_schema.setdefault("maxLength", 256)
+            elif parameter_name.endswith("_id") or parameter_name in {
+                "idempotency_key",
+                "expression",
+                "kind",
+                "action",
+            }:
+                parameter_schema.setdefault("maxLength", 256)
+            if parameter_schema.get("type") == "array":
+                parameter_schema.setdefault("maxItems", _MAX_COLLECTION_ITEMS)
+        registered_tool.parameters = parameters
+        registered_tool.__dict__.pop("output_schema", None)
+        registered_tool.fn_metadata.output_schema = _output_schema(tool_name)
         read_only = any(
             marker in tool_name
             for marker in (

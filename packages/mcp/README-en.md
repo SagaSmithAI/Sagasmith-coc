@@ -22,6 +22,11 @@ List APIs default to 50 records, enforce a maximum of 100, and return
 `next_cursor`; callers must reuse that cursor verbatim. Expected, model-repairable
 failures return `isError: true` with actionable guidance. Protocol/input failures
 remain JSON-RPC errors, and unexpected internal failures do not expose details.
+Every public tool publishes parameter descriptions, enforced request bounds,
+behavior annotations, and a stable output schema. Tool-execution failures retain
+the compatibility text block and add `structuredContent.error` with `code`,
+`message`, `retryable`, and `recovery`. The real transport contract matrix runs
+both legacy and 2026-07-28 clients over stdio and Streamable HTTP.
 
 [中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 

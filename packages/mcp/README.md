@@ -17,6 +17,10 @@ handle，作为目录导航，不授予权限。legacy `tools/list_changed` 与�
 列表接口默认最多返回 50 项，硬上限 100，并返回 `next_cursor`；继续翻页必须原样复用该
 游标。预期业务错误返回 `isError: true` 与可操作提示，参数/协议错误保持 JSON-RPC 错误，
 未预期内部异常不会泄露细节。
+每个公开工具都发布参数说明、实际执行的请求边界、行为注解和稳定输出 schema。工具执行失败
+保留兼容 text block，同时在 `structuredContent.error` 返回 `code`、`message`、
+`retryable` 与 `recovery`。真实传输契约矩阵同时覆盖 stdio、Streamable HTTP 以及 legacy、
+2026-07-28 两个协议时代。
 
 [中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
