@@ -175,6 +175,13 @@ pagination, idempotent writes, stale revisions, restart recovery, and the real
 transport/protocol matrix. Tests use deterministic fixtures rather than
 production campaigns or paid model services.
 
+All MCP collection facades use the same bounded `query`/`limit`/opaque-`cursor`
+shape and return `next_cursor` plus `has_more`. Campaign-event and state-revision
+history forward cursor offsets to the Core authority layer, including regression
+coverage that reaches records after item 100. The locked CI lane pins Core
+`612bfe7e5290eb5b23f2811baa83b8a28293b36e` for that contract; the compatibility
+lane continues to verify current Core `main`.
+
 ## Upgrade, rollback, and content safety
 
 Upgrade the compatible set in this order: Core, this dual-era MCP/Domain, then

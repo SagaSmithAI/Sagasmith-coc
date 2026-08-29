@@ -90,6 +90,10 @@ def test_success_preserves_legacy_text_and_structured_content(tmp_path: Path) ->
         result = await _server(tmp_path).call_tool("campaign_query", {"action": "list"})
         assert result.is_error is False
         assert result.content
-        assert result.structured_content == {"campaigns": [], "next_cursor": None}
+        assert result.structured_content == {
+            "campaigns": [],
+            "next_cursor": None,
+            "has_more": False,
+        }
 
     asyncio.run(exercise())
