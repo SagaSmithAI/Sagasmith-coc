@@ -8,13 +8,19 @@ Full Runtime operates through sagasmith-coc-mcp and never calls a CLI or a
 portable fallback under full/tools. Load SKILL.md, then the task-specific Keeper
 or Campaign Manager child Skill.
 
-Startup order:
+Modern startup order:
 
-1. server_capabilities and storage_status;
-2. campaign_query;
-3. exposure open/search/set;
-4. refresh native tools after tools/list_changed;
+1. optionally call `server/discover`, then carry version, capabilities, and
+   signed identity on every request;
+2. call `server_capabilities`, `storage_status`, and `campaign_query`;
+3. select a task/role/phase facade from the complete deterministic catalog,
+   exposing at most 16 tools to the model by default;
+4. use an owner/TTL-bound `exposure_handle` only when catalog navigation helps;
 5. read current campaign, phase, branch, scene, character, and continuity state.
+
+The catalog does not mutate because phase or tool side effects changed. The MCP
+still revalidates authorization, phase, and revision on every call.
+`tools/list_changed` belongs only to the explicit legacy compatibility path.
 
 See references/mcp-contract.md for the native surface,
 references/workflows.md for ordered flows, and

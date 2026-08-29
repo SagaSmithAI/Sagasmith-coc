@@ -31,7 +31,7 @@ SagaSmithAI 的 Call of Cthulhu 7e 本地权威 MCP 服务。它把 `sagasmith-c
 ## 运行时边界
 
 - MCP 负责权威战役状态、权限、revision、幂等性、随机流收据和随机判定的原子提交。
-- 现代 `tools/list` 稳定且确定排序；Host 为模型选择 Lobby、Play 或 Combat 子集，MCP 在调用时再次校验策略。
+- 现代 `tools/list` 稳定且确定排序；Host 为模型选择 Lobby、Play 或 Combat 子集（SagaSmith 默认最多 16 项），MCP 在调用时再次校验策略。16 是 Host 命中率策略，不是协议限制。
 - legacy 客户端迁移期间可保留连接 exposure 与 `tools/list_changed`，但二者都不是授权边界。
 - Agent 负责解释来源和作出模组特有的语义决策；最终 Pack 保留这些决定的来源证据。
 
@@ -69,7 +69,9 @@ combat_start -> combat_query
 
 `combat_start` 校验参与者的角色 revision，并以 DEX、已准备枪械的 DEX+50 和稳定同值顺序进入 Combat。攻击先持久化待响应选择；目标控制者再选择闪避、反击、俯身找掩护或不响应。`resolve` 从战役随机流结算攻击、防御、极难/贯穿伤害、弹药、CON、HP 与伤势，并把战役和受影响角色写入同一 revision group。Grid 模式由引擎保存坐标和校验移动/近战距离；Agent 模式不生成坐标，只接受 Agent 明确给出的空间事实。`combat_end` 返回 Play，并列出仍需濒死恢复处理的角色。
 
-真实 stdio 宿主回归已覆盖 Lobby → Play → Combat → Play：每次阶段变化后 Host 刷新原生列表，旧阶段工具立即消失，新阶段工具可直接加载和调用。
+真实 stdio 宿主回归已覆盖 Lobby → Play → Combat → Play：现代完整目录保持不变，Host
+在阶段变化后更新模型可见 facade，旧阶段调用由服务端策略拒绝，新阶段工具可直接加载和
+调用；legacy 回归继续验证 exposure/list_changed 适配器。
 
 追逐在 Play 内由 `chase_start/query/action/end` 管理，并与 Combat 严格互斥。开始追逐时，MCP 从角色 sheet 读取明确指定的 CON、Drive Auto 或 Pack 技能，使用战役随机流结算速度检定，再按最慢有效 MOV 计算每轮行动点。`chase_action` 权威维护 DEX 顺序、行动点消耗、路线位置、障碍检定和回合重置；障碍成功/失败对应的位置变化与来源必须由 Pack 或 Agent 明确提供，MCP 不猜测叙事地形。玩家只能操作被授权角色，开始/结束追逐只对 Keeper 开放，所有随机和状态变更均具 revision 与精确幂等收据。
 
@@ -147,7 +149,7 @@ pip install "sagasmith-coc-mcp[dense]"
 本地 MCP 的 stdio 与 loopback Streamable HTTP 运行同一个 `create_server()`
 及同一组权威 handlers；tool schema、错误、revision、idempotency 和 authority
 语义不得按 transport 分叉。stdio 适合一个 Agent 独占一个进程，统一本地栈默认使用
-Streamable HTTP 权威服务与粘性会话 Workbench gateway：
+Streamable HTTP 权威服务与有界连接复用的 Workbench gateway：
 
 原始 MCP 仅在 loopback 上允许无签名启动。将
 `SAGASMITH_COC_MCP_HTTP_HOST` 设为非 loopback 地址时，必须同时配置至少
@@ -175,6 +177,20 @@ sagasmith-coc-gateway
 - `SAGASMITH_COC_SKILLS_DIR`
 - `SAGASMITH_MODULEGEN_SKILLS_DIR`
 - `SAGASMITH_COC_MCP_BOUND_PRINCIPAL_ID`
+- `SAGASMITH_COC_MCP_TRANSPORT`（`stdio` 或 `streamable-http`）
+- `SAGASMITH_COC_MCP_HTTP_HOST`、`SAGASMITH_COC_MCP_HTTP_PORT`、`SAGASMITH_COC_MCP_HTTP_PATH`
+- `SAGASMITH_AUTH_CONTEXT_SECRET`（非 loopback HTTP 必需，至少 32 字节）
+
+## 可观测性与验证
+
+现代请求传播 `traceparent`、`tracestate` 和 `baggage`。transport、discover/initialize、
+catalog/exposure、tool 与 projection 指标只使用低基数维度；user、campaign、run 和参数
+不得成为 metric label。结构化错误和审计回执保留安全的 trace 关联，但不会泄露授权令牌
+或私有参数。
+
+`evaluations/read_only.xml` 包含 10 个彼此独立、复杂、稳定且已实际求解的只读 evaluation。
+自动化测试还覆盖现代/legacy × stdio/HTTP、确定目录、私有 cache scope、身份隔离、schema、
+structured error、trace、分页、幂等、stale revision 和重启恢复。
 
 ## 开发
 
@@ -182,6 +198,18 @@ sagasmith-coc-gateway
 pip install -e ".[dev]"
 pytest
 ruff check .
+```
+
+从仓库根目录运行完整垂直验证：
+
+```bash
+uv sync --all-packages --all-extras
+uv run --package sagasmith-coc pytest packages/domain/tests
+uv run --package sagasmith-coc-mcp pytest packages/mcp/tests
+uv run ruff check packages/domain packages/mcp
+npm ci
+npm run test:ui
+npm run build:ui
 ```
 
 原创代码采用 Apache-2.0。Call of Cthulhu 及相关商业内容的权利归各自权利人所有。
