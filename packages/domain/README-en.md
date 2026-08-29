@@ -1,6 +1,6 @@
 # SagaSmith CoC
 
-[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+[中文](README.md) · [English](README-en.md) · [Website](https://sagasmithai.github.io) · [Platform overview](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [Content catalog](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > Current source lives at `sagasmith-coc/packages/domain` and is versioned with the sibling MCP, Skills, and UI; the former split repositories are archived.
 
@@ -18,7 +18,7 @@ flowchart LR
     B --> D[(Campaign data · branches · retrieval)]
 ```
 
-The independently packaged [SagaSmith-coc-mcp](../mcp) connects MCP-owned storage, Lobby/Play/Combat session exposure, scenario scene indexes, snapshots, branch-aware memory, actor-scoped knowledge authorization, and rules resolution. The Domain package remains the pure CoC runtime and JSON CLI; Agent integration and persistence belong to the MCP package.
+The independently packaged [SagaSmith-coc-mcp](../mcp) connects MCP-owned storage, a stable tool catalog with Host phase projection, scenario scene indexes, snapshots, branch-aware memory, actor-scoped knowledge authorization, and rules resolution. The Domain package remains the pure CoC runtime and JSON CLI; per-request identity, Agent integration, and persistence belong to the MCP package. Legacy session exposure is an explicit compatibility path, not an authorization boundary.
 
 ## Implemented capabilities
 
@@ -43,11 +43,16 @@ Requires Python 3.11+:
 pip install sagasmith-coc
 sagasmith-coc doctor --json
 sagasmith-coc --help
+sagasmith-coc database upgrade --json
 ```
 
 The baseline contains only the Core database and text runtime. Markdown/text,
 SQLite, FTS, and ordinary CoC text sessions do not require PDF, image,
 ChromaDB, Sentence Transformers, or Torch packages.
+
+`database upgrade` requires the current Snapshot schema v8. Stop writers and
+take a consistent backup first. Rollback restores the database together with
+matching Core and CoC versions; the current format has no in-place downgrade.
 
 ```bash
 sagasmith-coc campaign start --name "Arkham Files" --json

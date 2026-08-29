@@ -1,6 +1,6 @@
 # SagaSmith CoC
 
-[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-service) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
+[中文](README.md) · [English](README-en.md) · [官网](https://sagasmithai.github.io) · [平台总览](https://github.com/SagaSmithAI/.github/blob/main/profile/README.md) · [SagaSmith Web](https://github.com/SagaSmithAI/SagaSmith-Web) · [内容目录](https://github.com/SagaSmithAI/SagaSmith-dnd-content-library)
 
 > 当前源码位于 `sagasmith-coc/packages/domain`，并与同仓 MCP、Skills 和 UI 一起版本化；原拆分仓库已归档。
 
@@ -18,7 +18,7 @@ flowchart LR
     B --> D[(Campaign data · branches · retrieval)]
 ```
 
-仓内独立包 [SagaSmith-coc-mcp](../mcp) 已接通 MCP-owned 存储、Lobby/Play/Combat session exposure、模组 scene index、Snapshot、分支记忆、角色级知识授权与规则判定。Domain 包继续专注纯 CoC 规则运行时和 JSON CLI；Agent 集成与持久化边界由 MCP 包负责。
+仓内独立包 [SagaSmith-coc-mcp](../mcp) 已接通 MCP-owned 存储、稳定工具目录与 Host 阶段投影、模组 scene index、Snapshot、分支记忆、角色级知识授权与规则判定。Domain 包继续专注纯 CoC 规则运行时和 JSON CLI；逐请求身份、Agent 集成与持久化边界由 MCP 包负责。legacy session exposure 仅用于显式兼容，不是授权边界。
 
 ## 已实现能力
 

@@ -37,7 +37,7 @@ The local authoritative MCP server for SagaSmithAI's Call of Cthulhu 7e stack. I
 ## Runtime boundary
 
 - MCP owns campaign state, authorization, revisions, idempotency, random-stream receipts, and atomic random resolution.
-- Modern `tools/list` is stable and sorted. The Host selects a Lobby, Play, or Combat subset for its model; policy is enforced again at call time.
+- Modern `tools/list` is stable and sorted. The Host selects a Lobby, Play, or Combat subset for its model (SagaSmith defaults to at most 16 tools); policy is enforced again at call time. Sixteen is a Host accuracy policy, not a protocol limit.
 - Legacy clients may retain connection exposure and `tools/list_changed` during migration. Neither is an authorization boundary.
 - The Agent owns source interpretation and scenario-specific semantic decisions. Finalized Pack decisions retain source evidence.
 
@@ -77,7 +77,11 @@ combat_start -> combat_query
 
 `combat_start` checks participant character revisions, then enters Combat using DEX, DEX+50 for a readied firearm, and stable ties. An attack first persists a pending response; the target controller then chooses dodge, fight back, dive for cover, or no response. `resolve` draws from the campaign stream and atomically settles attack, defense, extreme/impaling damage, ammunition, CON, HP, and wounds in one campaign/character revision group. Grid mode owns coordinates and validates movement and melee distance. Agent mode creates no coordinates and accepts only explicit Agent spatial facts. `combat_end` returns to Play and reports actors that still require dying recovery.
 
-A real stdio-host regression covers Lobby → Play → Combat → Play. After each phase change the host refreshes the native list, observes the old tools disappear, and directly loads and calls the next legal phase tools.
+A real stdio-host regression covers Lobby → Play → Combat → Play. The complete
+modern catalog remains unchanged while the Host updates its model-visible facade;
+the server rejects calls that are illegal in the new phase and accepts the next
+legal phase tools. The legacy regression separately verifies the exposure and
+`tools/list_changed` adapter.
 
 Chases stay within Play and use `chase_start/query/action/end`, with strict mutual exclusion against Combat. At chase start, MCP reads an explicitly named CON, Drive Auto, or Pack-defined skill from each sheet, resolves speed checks from the campaign stream, then derives per-round action points from the slowest effective MOV. `chase_action` owns DEX order, action-point consumption, route position, obstacle checks, and round resets. A Pack or Agent must explicitly supply the sourced position effects of success and failure; MCP does not guess narrative terrain. Players can act only for controlled actors, start/end remain Keeper-only, and every random/state transition has revision and exact-idempotency receipts.
 
@@ -185,13 +189,31 @@ State defaults to `.sagasmith-coc-mcp/`. The main configuration variables are:
 - `SAGASMITH_COC_SKILLS_DIR`
 - `SAGASMITH_MODULEGEN_SKILLS_DIR`
 - `SAGASMITH_COC_MCP_BOUND_PRINCIPAL_ID`
+- `SAGASMITH_COC_MCP_TRANSPORT` (`stdio` or `streamable-http`)
+- `SAGASMITH_COC_MCP_HTTP_HOST`, `SAGASMITH_COC_MCP_HTTP_PORT`, and `SAGASMITH_COC_MCP_HTTP_PATH`
+- `SAGASMITH_AUTH_CONTEXT_SECRET` (required for non-loopback HTTP, at least 32 bytes)
 
 The server applies Core Alembic migrations at startup and requires the current
 Snapshot schema v8. Before deployment, stop the server and take a consistent
 backup of `data/ttrpgbase.db` after its SQLite WAL has settled, or use the
-external database's native backup mechanism. There is no downgrade or
-dual-protocol mode; rollback restores the database together with matching Core,
-CoC, and MCP versions as one unit.
+external database's native backup mechanism. Snapshot schema v8 has no in-place
+downgrade. Protocol compatibility is dual-era: modern is the default and legacy
+is an explicit migration/rollback adapter. Data rollback restores the database
+together with matching Core, CoC, and MCP versions as one unit.
+
+## Observability and verification
+
+Modern requests propagate `traceparent`, `tracestate`, and `baggage`. Transport,
+discover/initialize, catalog/exposure, tool, and projection metrics use only
+low-cardinality dimensions; user, campaign, run, and arguments must never become
+metric labels. Structured errors and audit receipts preserve safe trace
+correlation without exposing authorization tokens or private arguments.
+
+`evaluations/read_only.xml` contains ten independent, complex, stable, and
+actually solved read-only evaluations. Automated coverage also exercises the
+modern/legacy × stdio/HTTP matrix, deterministic catalogs, private cache scopes,
+identity isolation, schemas, structured errors, traces, pagination, idempotency,
+stale revisions, and restart recovery.
 
 ## Development
 
@@ -199,6 +221,18 @@ CoC, and MCP versions as one unit.
 pip install -e ".[dev]"
 pytest
 ruff check .
+```
+
+Run the complete vertical validation from the repository root:
+
+```bash
+uv sync --all-packages --all-extras
+uv run --package sagasmith-coc pytest packages/domain/tests
+uv run --package sagasmith-coc-mcp pytest packages/mcp/tests
+uv run ruff check packages/domain packages/mcp
+npm ci
+npm run test:ui
+npm run build:ui
 ```
 
 Original code is licensed under Apache-2.0. Call of Cthulhu and related commercial content remain the property of their respective rights holders.
