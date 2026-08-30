@@ -2760,9 +2760,14 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         return campaign_audience_view(campaign_id, principal_id)
 
     @mcp.tool()
-    def game_phase(campaign_id: str, principal_id: str = "system:local") -> dict[str, str]:
+    def game_phase(campaign_id: str, principal_id: str = "system:local") -> dict[str, Any]:
         access.require_campaign(campaign_id, principal_id)
-        return {"campaign_id": campaign_id, "phase": authoritative_phase(campaign_id)}
+        campaign = campaigns.get(campaign_id)
+        return {
+            "campaign_id": campaign_id,
+            "phase": authoritative_phase(campaign_id),
+            "revision": campaign.revision,
+        }
 
     @mcp.tool()
     def playthrough_manifest(

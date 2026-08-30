@@ -97,3 +97,21 @@ def test_success_preserves_legacy_text_and_structured_content(tmp_path: Path) ->
         }
 
     asyncio.run(exercise())
+
+
+def test_game_phase_returns_revision_promised_by_public_contract(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = _server(tmp_path)
+        created = await server.call_tool(
+            "campaign_change",
+            {"action": "create", "data": {"name": "Luna contract campaign"}},
+        )
+        campaign_id = created.structured_content["id"]
+        phase = await server.call_tool("game_phase", {"campaign_id": campaign_id})
+        assert phase.structured_content == {
+            "campaign_id": campaign_id,
+            "phase": "lobby",
+            "revision": 1,
+        }
+
+    asyncio.run(exercise())
