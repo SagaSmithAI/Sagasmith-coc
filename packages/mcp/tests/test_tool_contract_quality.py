@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolRequestParams
 
 from sagasmith_coc_mcp.config import McpConfig
-from sagasmith_coc_mcp.server import create_server
+from sagasmith_coc_mcp.server import _classify_tool_error, create_server
 
 
 def _server(tmp_path: Path):
@@ -136,6 +136,12 @@ def test_nested_mutation_requirements_are_actionable(tmp_path: Path) -> None:
             )
 
     asyncio.run(exercise())
+
+
+def test_internal_key_error_text_is_not_classified_as_missing_input() -> None:
+    error = _classify_tool_error("'internal_state_key'")
+    assert error["error"]["code"] == "tool_execution_failed"
+    assert "required" not in error["error"]["message"]
 
 
 def test_character_type_and_campaign_locale_are_not_silently_discarded(tmp_path: Path) -> None:

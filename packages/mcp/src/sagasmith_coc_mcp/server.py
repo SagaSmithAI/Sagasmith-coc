@@ -516,6 +516,14 @@ def _validate_contract_arguments(arguments: Mapping[str, Any]) -> None:
             raise ValueError("limit must be an integer between 1 and 100")
 
 
+def _require_data_fields(data: Mapping[str, Any], *fields: str) -> None:
+    """Report facade-owned nested requirements before dispatch reaches services."""
+
+    missing = [field for field in fields if field not in data or data[field] in (None, "")]
+    if missing:
+        raise ValueError(f"data.{missing[0]} is required")
+
+
 def _output_schema(tool_name: str) -> dict[str, Any]:
     fields = dict.fromkeys(
         (*_COMMON_OUTPUT_FIELDS, *_TOOL_OUTPUT_FIELDS.get(tool_name, ("result",)))
@@ -1086,9 +1094,6 @@ class RequestScopedMCPServer(MCPServer):
             result = await super().call_tool(name, bound, context)
         except UnexpectedToolError as exc:
             cause = exc.__cause__
-            if isinstance(cause, KeyError):
-                missing = str(cause.args[0]) if cause.args else "required field"
-                raise ToolError(f"data.{missing} is required") from cause
             if isinstance(cause, (LookupError, PermissionError, ValueError)):
                 raise ToolError(str(cause)) from cause
             raise
@@ -2888,6 +2893,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             raise ValueError("campaign_id is required")
         require_dm(campaign_id, principal_id)
         if action == "set_phase":
+            _require_data_fields(data, "expected_revision")
             phase = str(data.get("phase") or "")
             if phase not in {PROFILE_LOBBY, PROFILE_PLAY}:
                 raise ValueError(
@@ -2975,11 +2981,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         principal_id: str = "system:local",
     ) -> dict[str, Any]:
         membership = access.require_campaign(campaign_id, principal_id)
-        key = str(data.get("idempotency_key") or "").strip()
-        if not key:
-            raise ValueError("data.idempotency_key is required")
+        _require_data_fields(data, "idempotency_key")
+        key = str(data["idempotency_key"]).strip()
         if action == "instantiate":
             require_dm(campaign_id, principal_id)
+            _require_data_fields(data, "expected_campaign_revision")
             template_id = str(data.get("template_id") or "").strip()
             if not template_id:
                 raise ValueError("data.template_id is required")
@@ -3008,6 +3014,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             )
             return asdict(created.character)
         if action == "create":
+            _require_data_fields(data, "expected_campaign_revision")
             if "type" in data and "character_type" not in data:
                 raise ValueError("data.character_type is required; use npc, creature, or investigator")
             character_type = str(data.get("character_type") or "investigator")
@@ -3044,8 +3051,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         }:
             raise PermissionError("combat character mutations require Keeper authority")
         current = characters.get(character_id)
-        if "expected_revision" not in data:
-            raise ValueError("data.expected_revision is required")
+        _require_data_fields(data, "expected_revision")
         updated = {
             **asdict(current),
             "name": str(data.get("name", current.name)),
