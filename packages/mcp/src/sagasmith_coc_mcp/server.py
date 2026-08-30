@@ -283,7 +283,8 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
         "List, search, or read audience-authorized investigators with bounded pagination."
     ),
     "character_change": (
-        "Create or atomically update an investigator, NPC, or creature under campaign authority guards. "
+        "Create or atomically update an investigator, NPC, or creature under "
+        "campaign authority guards. "
         "Use data.character_type (investigator, npc, or creature)."
     ),
     "module_query": "Read bounded module, scene, retrieval, or compilation projections.",
@@ -419,7 +420,11 @@ def _argument_error(code: str, message: str, *, retryable: bool, recovery: str) 
 
 def _classify_tool_error(message: str) -> dict[str, Any]:
     normalized = message.casefold()
-    if "stale" in normalized or "revision" in normalized and "match" in normalized:
+    if (
+        "stale" in normalized
+        or "revision" in normalized
+        and ("match" in normalized or "expected memory revision" in normalized)
+    ):
         return _argument_error(
             "stale_revision",
             message,
@@ -3027,7 +3032,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         if action == "create":
             _require_data_fields(data, "expected_campaign_revision")
             if "type" in data and "character_type" not in data:
-                raise ValueError("data.character_type is required; use npc, creature, or investigator")
+                raise ValueError(
+                    "data.character_type is required; use npc, creature, or investigator"
+                )
             character_type = str(data.get("character_type") or "investigator")
             if character_type not in {"investigator", "npc", "creature"}:
                 raise ValueError("character_type must be investigator, npc, or creature")
@@ -5414,14 +5421,18 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
 
     @mcp.tool()
     def memory_change(
-        action: Literal["add", "upsert", "revise", "commit"],
+        action: Literal["add", "upsert", "revise", "retract", "forget", "commit"],
         campaign_id: str,
         data: dict[str, Any],
         principal_id: str = "system:local",
         expected_revision: int | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        """Write objective facts or atomically settle one investigation outcome."""
+        """Write objective facts or atomically settle one investigation outcome.
+
+        ``retract`` and ``forget`` append inactive revisions; they never delete
+        the memory row and remain recoverable with ``include_inactive``.
+        """
 
         require_dm(campaign_id, principal_id)
         key = str(idempotency_key or "").strip()
@@ -5594,7 +5605,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 metadata=(dict(data["metadata"]) if data.get("metadata") is not None else None),
                 branch_id=branch_id,
                 expected_revision_id=data.get("expected_revision_id"),
-                status=data.get("status"),
+                status=(
+                    "retracted"
+                    if action == "retract"
+                    else "forgotten"
+                    if action == "forget"
+                    else data.get("status")
+                ),
                 source_event_ids=(
                     list(data["source_event_ids"])
                     if data.get("source_event_ids") is not None

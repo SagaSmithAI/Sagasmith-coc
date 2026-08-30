@@ -783,7 +783,7 @@ def test_memory_and_actor_knowledge_revision_and_retirement_lifecycle(tmp_path: 
             },
         )
         assert [item["id"] for item in found["memories"]] == [fact["id"]]
-        await call(
+        retracted_fact = await call(
             server,
             "memory_change",
             {
@@ -812,6 +812,38 @@ def test_memory_and_actor_knowledge_revision_and_retirement_lifecycle(tmp_path: 
         )
         assert fact["id"] not in {item["id"] for item in active["memories"]}
         assert fact["id"] in {item["id"] for item in inactive["memories"]}
+        forgotten_fact = await call(
+            server,
+            "memory_change",
+            {
+                "action": "forget",
+                "campaign_id": campaign_id,
+                "data": {
+                    "memory_id": fact["id"],
+                    "content": retracted_fact["content"],
+                    "expected_revision_id": retracted_fact["revision_id"],
+                },
+                "idempotency_key": "forget-chapel-door",
+            },
+        )
+        assert forgotten_fact["status"] == "forgotten"
+        active_after_forget = await call(
+            server, "memory_query", {"action": "list", "campaign_id": campaign_id}
+        )
+        assert fact["id"] not in {item["id"] for item in active_after_forget["memories"]}
+        inactive_after_forget = await call(
+            server,
+            "memory_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "data": {"include_inactive": True},
+            },
+        )
+        assert any(
+            item["id"] == fact["id"] and item["status"] == "forgotten"
+            for item in inactive_after_forget["memories"]
+        )
 
         knowledge_item = await call(
             server,
