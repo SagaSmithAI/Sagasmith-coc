@@ -2976,7 +2976,18 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
     def character_change(
         action: Literal["create", "instantiate", "update"],
         campaign_id: str,
-        data: dict[str, Any],
+        data: Annotated[
+            dict[str, Any],
+            Field(
+                description=(
+                    "Operation-specific object. All actions require idempotency_key. "
+                    "create and instantiate also require expected_campaign_revision; "
+                    "create requires character_type (investigator, npc, or creature), "
+                    "name, and sheet. instantiate requires template_id. update requires "
+                    "expected_revision."
+                )
+            ),
+        ],
         character_id: str | None = None,
         principal_id: str = "system:local",
     ) -> dict[str, Any]:

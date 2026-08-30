@@ -45,6 +45,19 @@ def test_every_public_tool_has_model_usable_contract_metadata(tmp_path: Path) ->
     asyncio.run(exercise())
 
 
+def test_character_change_data_contract_advertises_nested_guards(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        tools = await _server(tmp_path).list_tools()
+        character_change = next(tool for tool in tools if tool.name == "character_change")
+        description = character_change.input_schema["properties"]["data"]["description"]
+        assert "idempotency_key" in description
+        assert "expected_campaign_revision" in description
+        assert "character_type" in description
+        assert "expected_revision" in description
+
+    asyncio.run(exercise())
+
+
 def test_advertised_bounds_are_enforced_before_dispatch(tmp_path: Path) -> None:
     async def exercise() -> None:
         server = _server(tmp_path)
