@@ -13,6 +13,28 @@ THREAD_STATUSES = {"dormant", "open", "advanced", "resolved", "abandoned"}
 ARC_STATUSES = {"dormant", "available", "advanced", "resolved", "closed"}
 EVIDENCE_KINDS = {"event", "snapshot", "scene", "memory_fact", "conversation", "clue"}
 
+_FRONT_TRANSITIONS = {
+    "dormant": FRONT_STATUSES,
+    "active": {"active", "advanced", "resolved", "averted"},
+    "advanced": {"advanced", "resolved", "averted"},
+    "resolved": {"resolved"},
+    "averted": {"averted"},
+}
+_THREAD_TRANSITIONS = {
+    "dormant": THREAD_STATUSES,
+    "open": {"open", "advanced", "resolved", "abandoned"},
+    "advanced": {"advanced", "resolved", "abandoned"},
+    "resolved": {"resolved"},
+    "abandoned": {"abandoned"},
+}
+_ARC_TRANSITIONS = {
+    "dormant": ARC_STATUSES,
+    "available": {"available", "advanced", "resolved", "closed"},
+    "advanced": {"advanced", "resolved", "closed"},
+    "resolved": {"resolved"},
+    "closed": {"closed"},
+}
+
 
 def new_playthrough_manifest(
     *,
@@ -158,7 +180,86 @@ def validate_playthrough_transition(current_value: Any, next_value: Any) -> dict
             raise ValueError("campaign_mode transition is not permitted")
     if appended and any(item["classification"] != "emergent_episode" for item in appended):
         raise ValueError("playthrough updates may append only emergent_episode shards")
+    if not set(current["traversal"]["visited_scene_ids"]).issubset(
+        successor["traversal"]["visited_scene_ids"]
+    ):
+        raise ValueError("visited_scene_ids may not delete established traversal history")
+    _validate_progress_transition(
+        current["front_progress"],
+        successor["front_progress"],
+        field="front_progress",
+        transitions=_FRONT_TRANSITIONS,
+        staged=True,
+    )
+    _validate_progress_transition(
+        current["thread_progress"],
+        successor["thread_progress"],
+        field="thread_progress",
+        transitions=_THREAD_TRANSITIONS,
+    )
+    _validate_arc_transition(current["arc_progress"], successor["arc_progress"])
     return successor
+
+
+def _validate_progress_transition(
+    current: list[dict[str, Any]],
+    successor: list[dict[str, Any]],
+    *,
+    field: str,
+    transitions: dict[str, set[str]],
+    staged: bool = False,
+) -> None:
+    next_by_id = {item["id"]: item for item in successor}
+    for previous in current:
+        item_id = previous["id"]
+        following = next_by_id.get(item_id)
+        if following is None:
+            raise ValueError(f"{field} may not delete established id {item_id!r}")
+        if following["status"] not in transitions[previous["status"]]:
+            raise ValueError(
+                f"{field} {item_id!r} may not move from {previous['status']!r} "
+                f"to {following['status']!r}"
+            )
+        if staged and following["stage"] < previous["stage"]:
+            raise ValueError(f"{field} {item_id!r} stage may not decrease")
+        _require_evidence_history(previous, following, field=field)
+
+
+def _validate_arc_transition(
+    current: list[dict[str, Any]], successor: list[dict[str, Any]]
+) -> None:
+    next_by_id = {item["id"]: item for item in successor}
+    for previous in current:
+        arc_id = previous["id"]
+        following = next_by_id.get(arc_id)
+        if following is None:
+            raise ValueError(f"arc_progress may not delete established id {arc_id!r}")
+        if (following["actor_id"], following["actor_kind"]) != (
+            previous["actor_id"],
+            previous["actor_kind"],
+        ):
+            raise ValueError(f"arc_progress {arc_id!r} actor identity is immutable")
+        if following["status"] not in _ARC_TRANSITIONS[previous["status"]]:
+            raise ValueError(
+                f"arc_progress {arc_id!r} may not move from {previous['status']!r} "
+                f"to {following['status']!r}"
+            )
+        if not set(previous["completed_opportunity_ids"]).issubset(
+            following["completed_opportunity_ids"]
+        ):
+            raise ValueError(
+                f"arc_progress {arc_id!r} completed_opportunity_ids may not delete history"
+            )
+        _require_evidence_history(previous, following, field="arc_progress")
+
+
+def _require_evidence_history(
+    previous: dict[str, Any], following: dict[str, Any], *, field: str
+) -> None:
+    old_evidence = {(item["kind"], item["ref_id"]) for item in previous["evidence_refs"]}
+    new_evidence = {(item["kind"], item["ref_id"]) for item in following["evidence_refs"]}
+    if not old_evidence.issubset(new_evidence):
+        raise ValueError(f"{field} {previous['id']!r} evidence_refs may not delete history")
 
 
 def _validate_lineage(value: Any, module_ids: list[str], mode: str) -> list[dict[str, Any]]:
@@ -281,7 +382,9 @@ def _arc_progress(value: Any) -> list[dict[str, Any]]:
         )
         status = _choice(item.get("status"), f"{path}.status", ARC_STATUSES)
         evidence = _refs(item.get("evidence_refs"), f"{path}.evidence_refs")
-        if status in {"advanced", "resolved", "closed"} and not evidence:
+        if (status in {"advanced", "resolved", "closed"} or item.get(
+            "completed_opportunity_ids"
+        )) and not evidence:
             raise ValueError(f"{path}.status={status!r} requires evidence_refs")
         result.append(
             {

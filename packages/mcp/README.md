@@ -18,8 +18,9 @@ handle，作为目录导航，不授予权限。legacy `tools/list_changed` 与�
 同时返回 `next_cursor` 与 `has_more`；继续翻页必须在相同过滤条件下原样复用服务器签发的
 opaque 游标。该契约覆盖模组草稿、规则来源、模组/场景/进度索引与搜索、客观记忆、角色知识、
 分支、快照列表与 lineage、调查历史、战役事件及状态修订历史。事件与修订游标会下推 Core，
-因此第 101 条之后仍可达，MCP 进程无需加载完整战役历史。锁定 CI lane 使用首个提供这些
-权威 offset 的 Core commit `612bfe7e5290eb5b23f2811baa83b8a28293b36e`。
+因此第 101 条之后仍可达，MCP 进程无需加载完整战役历史。角色记忆还可通过 Core 的角色、
+分支、知识披露与 audience 策略精确解析最多 128 个 `event:<id>` 引用。锁定 CI lane 使用
+同时提供这两类权威契约的 Core commit `59173c2fe3b80637a0890062dff381b38aa325fe`。
 
 预期业务错误返回 `isError: true` 与可操作提示，参数/协议错误保持 JSON-RPC 错误，
 未预期内部异常不会泄露细节。
@@ -53,9 +54,9 @@ Keeper 恢复接口由 `branch_query/change`、`snapshot_query/change` 和
 `idempotency_key`；checkout、restore、undo、redo 改变权威阶段后会触发
 现代目录保持稳定，Host 只更新模型可见子集；legacy 适配器可继续发送 `tools/list_changed`。
 
-Snapshot 在公共协议中仍是可独立恢复的完整状态文档；底层 schema v8 仅把每个文档独立压缩为 `zlib-1` 记录，并校验压缩字节、文档 checksum 与节点身份。`snapshot_query/change`、branch checkout、undo/redo 和重启恢复都不依赖祖先链回放。
+Snapshot 在公共协议中仍是可独立恢复的完整状态文档；底层 schema v9 仅把每个文档独立压缩为 `zlib-1` 记录，并校验压缩字节、文档 checksum 与节点身份。`snapshot_query/change`、branch checkout、undo/redo 和重启恢复都不依赖祖先链回放。
 
-服务启动时会执行 Core Alembic 迁移，并要求数据库符合当前 Snapshot schema v8。部署前必须在服务停止且 SQLite WAL 已收敛后备份 `data/ttrpgbase.db`；外部数据库使用其原生一致性备份。当前格式不可 downgrade；回滚必须将数据库、Core、CoC 和 MCP 恢复为一套匹配版本。
+服务启动时会执行 Core Alembic 迁移，并要求数据库符合当前 Snapshot schema v9。部署前必须在服务停止且 SQLite WAL 已收敛后备份 `data/ttrpgbase.db`；外部数据库使用其原生一致性备份。当前格式不可 downgrade；回滚必须将数据库、Core、CoC 和 MCP 恢复为一套匹配版本。
 
 Play 与 Combat 阶段提供两项来源明确的角色状态结算：
 

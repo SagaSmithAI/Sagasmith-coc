@@ -76,7 +76,7 @@ def select_actor_memory_context(
             deduped[identity] = item
     ranked = []
     for item in deduped.values():
-        exact = len(current.intersection(item["refs"]))
+        exact = len(current.intersection([item["basis_ref"], *item["refs"]]))
         haystack = " ".join(
             [item["content"], item["basis_ref"], *item["refs"], _canonical(item["record"])]
         ).casefold()

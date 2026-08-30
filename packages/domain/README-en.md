@@ -50,7 +50,7 @@ The baseline contains only the Core database and text runtime. Markdown/text,
 SQLite, FTS, and ordinary CoC text sessions do not require PDF, image,
 ChromaDB, Sentence Transformers, or Torch packages.
 
-`database upgrade` requires the current Snapshot schema v8. Stop writers and
+`database upgrade` requires the current Snapshot schema v9. Stop writers and
 take a consistent backup first. Rollback restores the database together with
 matching Core and CoC versions; the current format has no in-place downgrade.
 

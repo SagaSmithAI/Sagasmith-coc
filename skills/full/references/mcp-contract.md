@@ -137,6 +137,7 @@ checks still apply to other tools.
 | state_revision | history, receipt, undo, redo |
 | coc_dice_roll | d100, expression |
 | coc_resolve | skill, opposed, sanity, melee, ranged, chase_speed, chase_action |
+| resolution_presentation | render one settled mechanic for its authorized audience |
 | development_query / settle | read checked skills; settle all checked skills |
 | group_luck_query / check | read lowest candidates; authoritative group roll |
 | investigation_query | pending, history |

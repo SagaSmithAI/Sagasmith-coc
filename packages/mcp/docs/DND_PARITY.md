@@ -8,7 +8,7 @@
 
 ## 当前结论
 
-CoC 当前公开 51 个原生工具。`npc_conversation_transport` 是经过 Host token
+CoC 当前公开 52 个原生工具。`npc_conversation_transport` 是经过 Host token
 鉴权且永不出现在 `tools/list` 的私有 transport，不是额外的公开工具，也没有
 旧公开 worker 兼容入口。Agent 根据 server capability 私下调用 transport，
 Director 只收到 server 验证后的 publication，看不到 capsule 或 raw proposal。
@@ -24,8 +24,8 @@ Director 只收到 server 验证后的 publication，看不到 capsule 或 raw p
 | CoC 判定 | d100、难度、奖励/惩罚骰、Push、Luck、组合/对抗、团体 Luck | 调查待决选择、随机收据、revision refresh 和原子结算由公共 facade 覆盖 |
 | SAN、HP 与长期状态 | SAN loss/bout、伤害、护甲、重伤、濒死、治疗、成长、Luck、年龄、tome/spell study | 即时机械转换由系统引擎拥有；跨场景时机仍由来源和 Keeper 明确提供 |
 | Combat / Chase | Grid 与 Agent 两种 Combat 空间模式；人物与车辆 Chase 卡 | 公共回归覆盖响应、攻击、伤害、Combat/Chase 互斥、Grid/Agent、重启；私有两路线分别覆盖 Agent Combat 与 Chase → Grid Combat |
-| NPC conversation | 公开 `npc_conversation` + 私有鉴权且不列出的 `npc_conversation_transport`；conversation v3、proposal v4 | 真实 Agent + 实际 CoC stdio MCP 回归验证 capability、隐藏 transport、私有 capsule、publication；公共 facade 覆盖 close/abort、阶段互斥和 stale authority |
-| Skills | 51 个公开工具、conversation v3/proposal v4、Host 私有 transport | `SagaSmith-coc-skills` validator 强制当前工具集合和关键流程；不含公开 worker 契约 |
+| NPC conversation | 公开 `npc_conversation` + 私有鉴权且不列出的 `npc_conversation_transport`；conversation v3、proposal v5 | 真实 Agent + 实际 CoC stdio MCP 回归验证 capability、隐藏 transport、私有 capsule、publication；公共 facade 覆盖 close/abort、阶段互斥和 stale authority |
+| Skills | 52 个公开工具、conversation v3/proposal v5、Host 私有 transport | `SagaSmith-coc-skills` validator 强制当前工具集合和关键流程；不含公开 worker 契约 |
 
 ## 私有来源与真实 Host 证据
 

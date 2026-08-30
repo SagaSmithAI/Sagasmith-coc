@@ -53,8 +53,12 @@ ActorKnowledge, clues, and progress.
 
 Runtime progress for an advanced/resolved/averted front,
 advanced/resolved/abandoned thread, or advanced/resolved/closed arc requires at
-least one exact evidence reference. An investigator or NPC arc advances only through a
-completed authored opportunity; it never schedules a forced outcome.
+least one exact evidence reference that exists on the checked-out branch. Once
+visited scenes, progress records, stages, completed opportunities, or their
+evidence have been recorded, a replacement may advance or append them but may
+not delete or rewind them. Use branch checkout, Snapshot restore, or undo/redo
+to return to an earlier history. An investigator or NPC arc advances only
+through a completed authored opportunity; it never schedules a forced outcome.
 
 ## Authored scenario detours
 

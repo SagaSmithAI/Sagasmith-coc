@@ -6,7 +6,7 @@ close payloads.
 
 ## Settlement
 
-- Worker proposals use `npc-conversation-proposal.v4`. Proposed facts,
+- Worker proposals use `npc-conversation-proposal.v5`. Proposed facts,
   ActorKnowledge, and commitments become immutable memory candidates with
   stable IDs; they are not authoritative writes.
 - Every understood speech segment also creates a heard-statement

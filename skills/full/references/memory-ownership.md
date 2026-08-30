@@ -38,7 +38,10 @@ tracks under one deterministic budget. Query recall searches the whole current
 branch, not only the recent window. Player reads are filtered at the Core query
 entrance by both knowledge disclosure and event audience; Keeper-only events do
 not become player-visible merely because an investigator participated. The
-projection never chooses an investigator's intent.
+projection never chooses an investigator's intent. When the current decision
+already cites an `event:<id>`, pass it as a related reference: actor memory resolves
+up to 128 such old events through the same branch, participant, disclosure, and
+audience checks instead of relying on the recent-history window.
 
 ## Commit one realized outcome
 
@@ -101,6 +104,9 @@ same scene; the Agent decides perception, hearing, language, and comprehension.
 - Use stable knowledge_key and subject_ref.
 - Record epistemic status, confidence, cause, disclosure scope, and source event.
 - Revising knowledge requires the exact knowledge item and revision guard.
+- Use `forgotten` or `superseded` to retire ActorKnowledge without deleting its
+  branch history; ordinary reads exclude those statuses unless the Keeper
+  explicitly requests inactive records.
 - Knowledge imported in an actor card or another campaign never transfers
   automatically.
 

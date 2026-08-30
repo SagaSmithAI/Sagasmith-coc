@@ -178,9 +178,10 @@ production campaigns or paid model services.
 All MCP collection facades use the same bounded `query`/`limit`/opaque-`cursor`
 shape and return `next_cursor` plus `has_more`. Campaign-event and state-revision
 history forward cursor offsets to the Core authority layer, including regression
-coverage that reaches records after item 100. The locked CI lane pins Core
-`612bfe7e5290eb5b23f2811baa83b8a28293b36e` for that contract; the compatibility
-lane continues to verify current Core `main`.
+coverage that reaches records after item 100. Actor-memory projections also resolve
+bounded exact `event:<id>` references through Core actor/audience policy. The locked
+CI lane pins Core `59173c2fe3b80637a0890062dff381b38aa325fe` for those contracts;
+the compatibility lane continues to verify current Core `main`.
 
 ## Upgrade, rollback, and content safety
 
