@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from pathlib import Path
 
 import pytest
@@ -376,7 +377,7 @@ def test_four_track_selector_prioritizes_exact_refs_without_deciding_intent() ->
     assert "intent" not in selected
 
 
-def test_actor_memory_recalls_old_branch_history_without_keeper_disclosure_leak(
+def test_actor_memory_recalls_old_and_exact_branch_history_without_disclosure_leak(
     tmp_path: Path,
 ) -> None:
     async def exercise() -> None:
@@ -439,6 +440,35 @@ def test_actor_memory_recalls_old_branch_history_without_keeper_disclosure_leak(
                 "idempotency_key": "keeper-cipher",
             },
         )
+        other_actor = await call(
+            server,
+            "character_change",
+            {
+                "action": "create",
+                "campaign_id": campaign_id,
+                "data": {
+                    "name": "Professor Marsh",
+                    "sheet": {"pow": 50},
+                    "idempotency_key": "create-marsh",
+                },
+            },
+        )
+        other_actor_only = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "Professor Marsh records a private route through the marsh.",
+                    "audience_scope": "public",
+                    "participants": [
+                        {"actor_id": other_actor["id"], "role": "witness"}
+                    ],
+                },
+                "idempotency_key": "other-actor-route",
+            },
+        )
         for index in range(205):
             await call(
                 server,
@@ -454,6 +484,26 @@ def test_actor_memory_recalls_old_branch_history_without_keeper_disclosure_leak(
                     "idempotency_key": f"filler-{index}",
                 },
             )
+        exact = await call(
+            server,
+            "continuity_context",
+            {
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "purpose": "actor_memory",
+                "query": "",
+                "related_refs": [
+                    f"event:{old['id']}",
+                    f"event:{keeper_only['id']}",
+                    f"event:{other_actor_only['id']}",
+                ],
+                "principal_id": "player:hale",
+            },
+        )
+        exact_ids = {item["record"]["id"] for item in exact["memory"]["episodic"]}
+        assert old["id"] in exact_ids
+        assert keeper_only["id"] not in exact_ids
+        assert other_actor_only["id"] not in exact_ids
         player = await call(
             server,
             "continuity_context",
@@ -605,6 +655,226 @@ def test_actor_knowledge_list_and_search_filter_disclosure_at_query_entry(
     asyncio.run(exercise())
 
 
+def test_memory_and_actor_knowledge_search_paginate_beyond_one_hundred(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        facts = [
+            {
+                "action": "add",
+                "fact_key": f"pagination-fact-{index:03d}",
+                "kind": "fact",
+                "subject_ref": f"campaign:{campaign_id}",
+                "predicate": "pagination_marker",
+                "content": f"shared pagination marker fact {index:03d}",
+                "disclosure_scope": "dm",
+            }
+            for index in range(105)
+        ]
+        actor_knowledge = [
+            {
+                "action": "add",
+                "actor_id": actor["id"],
+                "knowledge_key": f"pagination-knowledge-{index:03d}",
+                "proposition": f"shared pagination marker knowledge {index:03d}",
+                "disclosure_scope": "owner",
+            }
+            for index in range(105)
+        ]
+        await call(
+            server,
+            "memory_change",
+            {
+                "action": "commit",
+                "campaign_id": campaign_id,
+                "data": {
+                    "event": {"summary": "Install pagination fixtures."},
+                    "facts": facts,
+                    "actor_knowledge": actor_knowledge,
+                },
+                "idempotency_key": "pagination-fixtures",
+            },
+        )
+
+        async def collect(tool: str, arguments: dict) -> list[dict]:
+            values: list[dict] = []
+            cursor = None
+            while True:
+                page = await call(
+                    server,
+                    tool,
+                    {**arguments, "limit": 60, **({"cursor": cursor} if cursor else {})},
+                )
+                key = "knowledge" if tool == "actor_knowledge_query" else "memories"
+                values.extend(page[key])
+                if not page["has_more"]:
+                    break
+                cursor = page["next_cursor"]
+            return values
+
+        memories = await collect(
+            "memory_query",
+            {
+                "action": "search",
+                "campaign_id": campaign_id,
+                "data": {"query": "shared pagination marker"},
+            },
+        )
+        knowledge_items = await collect(
+            "actor_knowledge_query",
+            {
+                "action": "search",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {"query": "shared pagination marker"},
+            },
+        )
+        assert len(memories) == 105
+        assert len(knowledge_items) == 105
+
+    asyncio.run(exercise())
+
+
+def test_memory_and_actor_knowledge_revision_and_retirement_lifecycle(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        fact = await call(
+            server,
+            "memory_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "fact_key": "chapel-door",
+                    "kind": "fact",
+                    "subject_ref": "location:chapel",
+                    "predicate": "state",
+                    "content": "The chapel door is locked.",
+                },
+                "idempotency_key": "add-chapel-door",
+            },
+        )
+        revised_fact = await call(
+            server,
+            "memory_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "data": {
+                    "memory_id": fact["id"],
+                    "content": "The chapel door has been forced open.",
+                    "expected_revision_id": fact["revision_id"],
+                },
+                "idempotency_key": "revise-chapel-door",
+            },
+        )
+        found = await call(
+            server,
+            "memory_query",
+            {
+                "action": "search",
+                "campaign_id": campaign_id,
+                "data": {"query": "forced open"},
+            },
+        )
+        assert [item["id"] for item in found["memories"]] == [fact["id"]]
+        await call(
+            server,
+            "memory_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "data": {
+                    "memory_id": fact["id"],
+                    "content": revised_fact["content"],
+                    "status": "retracted",
+                    "expected_revision_id": revised_fact["revision_id"],
+                },
+                "idempotency_key": "retract-chapel-door",
+            },
+        )
+        active = await call(
+            server, "memory_query", {"action": "list", "campaign_id": campaign_id}
+        )
+        inactive = await call(
+            server,
+            "memory_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "data": {"include_inactive": True},
+            },
+        )
+        assert fact["id"] not in {item["id"] for item in active["memories"]}
+        assert fact["id"] in {item["id"] for item in inactive["memories"]}
+
+        knowledge_item = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_key": "chapel-password",
+                    "proposition": "The whispered password is Aster.",
+                    "disclosure_scope": "owner",
+                },
+                "idempotency_key": "add-chapel-password",
+            },
+        )
+        changed_knowledge = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_id": knowledge_item["id"],
+                    "proposition": "The whispered password was misheard.",
+                    "epistemic_status": "modified",
+                    "expected_revision_id": knowledge_item["revision_id"],
+                    "disclosure_scope": "owner",
+                },
+                "idempotency_key": "revise-chapel-password",
+            },
+        )
+        await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_id": knowledge_item["id"],
+                    "proposition": changed_knowledge["proposition"],
+                    "epistemic_status": "forgotten",
+                    "expected_revision_id": changed_knowledge["revision_id"],
+                    "disclosure_scope": "owner",
+                },
+                "idempotency_key": "forget-chapel-password",
+            },
+        )
+        common = {"campaign_id": campaign_id, "actor_id": actor["id"]}
+        known = await call(server, "actor_knowledge_query", {"action": "list", **common})
+        forgotten = await call(
+            server,
+            "actor_knowledge_query",
+            {"action": "list", **common, "data": {"include_inactive": True}},
+        )
+        assert knowledge_item["id"] not in {item["id"] for item in known["knowledge"]}
+        assert knowledge_item["id"] in {item["id"] for item in forgotten["knowledge"]}
+
+    asyncio.run(exercise())
+
+
 def test_campaign_expansion_is_keeper_only_lobby_review_and_never_writes_state(
     tmp_path: Path,
 ) -> None:
@@ -722,6 +992,107 @@ def test_campaign_expansion_is_keeper_only_lobby_review_and_never_writes_state(
                     "principal_id": "player:hale",
                 },
             )
+
+    asyncio.run(exercise())
+
+
+def test_playthrough_progress_requires_current_branch_evidence(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, _actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        module_id, scene_ids = await install_runtime_pack(
+            server,
+            campaign_id,
+            module_key="evidence-seed",
+            classification="emergent_seed",
+            root_module_key="evidence-seed",
+        )
+        manifest = new_playthrough_manifest(
+            campaign_line_id="evidence-line",
+            module_ids=[module_id],
+            campaign_mode="emergent",
+            content_lineage=[
+                {
+                    "module_id": module_id,
+                    "classification": "emergent_seed",
+                    "root_module_id": module_id,
+                    "parent_module_id": "",
+                    "generation": 0,
+                    "scene_ids": scene_ids,
+                    "source_refs": [],
+                }
+            ],
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        await call(
+            server,
+            "playthrough_manifest",
+            {
+                "action": "initialize",
+                "campaign_id": campaign_id,
+                "manifest": manifest,
+                "expected_revision": current["revision"],
+                "idempotency_key": "evidence-manifest",
+            },
+        )
+        forged = copy.deepcopy(manifest)
+        forged["front_progress"] = [
+            {
+                "id": "front:tide-cult",
+                "status": "advanced",
+                "stage": 1,
+                "source_ref": None,
+                "evidence_refs": [{"kind": "event", "ref_id": "event:forged"}],
+            }
+        ]
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        with pytest.raises(Exception, match="evidence_refs are not attested"):
+            await call(
+                server,
+                "playthrough_manifest",
+                {
+                    "action": "replace",
+                    "campaign_id": campaign_id,
+                    "manifest": forged,
+                    "expected_revision": current["revision"],
+                    "idempotency_key": "forged-progress",
+                },
+            )
+
+        event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {"summary": "The cult begins the moon-tide rite."},
+                "idempotency_key": "real-progress-evidence",
+            },
+        )
+        supported = copy.deepcopy(forged)
+        supported["front_progress"][0]["evidence_refs"] = [
+            {"kind": "event", "ref_id": event["id"]}
+        ]
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        replaced = await call(
+            server,
+            "playthrough_manifest",
+            {
+                "action": "replace",
+                "campaign_id": campaign_id,
+                "manifest": supported,
+                "expected_revision": current["revision"],
+                "idempotency_key": "supported-progress",
+            },
+        )
+        assert replaced["manifest"]["front_progress"][0]["status"] == "advanced"
 
     asyncio.run(exercise())
 

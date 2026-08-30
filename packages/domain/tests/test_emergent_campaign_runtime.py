@@ -329,6 +329,99 @@ def test_playthrough_transition_allows_progress_updates_and_reviewed_append() ->
 @pytest.mark.parametrize(
     "mutation, message",
     [
+        (
+            lambda value: value.update(front_progress=[]),
+            "front_progress may not delete",
+        ),
+        (
+            lambda value: value["front_progress"][0].update(status="dormant"),
+            "front_progress.*may not move",
+        ),
+        (
+            lambda value: value["front_progress"][0].update(stage=1),
+            "front_progress.*stage may not decrease",
+        ),
+        (
+            lambda value: value.update(thread_progress=[]),
+            "thread_progress may not delete",
+        ),
+        (
+            lambda value: value["thread_progress"][0].update(status="open"),
+            "thread_progress.*may not move",
+        ),
+        (
+            lambda value: value["traversal"].update(visited_scene_ids=[]),
+            "visited_scene_ids may not delete",
+        ),
+        (
+            lambda value: value.update(arc_progress=[]),
+            "arc_progress may not delete",
+        ),
+        (
+            lambda value: value["arc_progress"][0].update(
+                completed_opportunity_ids=[]
+            ),
+            "completed_opportunity_ids may not delete",
+        ),
+        (
+            lambda value: value["arc_progress"][0].update(actor_id="other"),
+            "actor identity is immutable",
+        ),
+        (
+            lambda value: value["front_progress"][0].update(evidence_refs=[]),
+            "requires evidence_refs",
+        ),
+    ],
+)
+def test_playthrough_transition_rejects_progress_history_loss(mutation, message) -> None:
+    current = new_playthrough_manifest(
+        campaign_line_id="line",
+        module_ids=["seed"],
+        campaign_mode="emergent",
+        content_lineage=[lineage("seed", "emergent_seed", "seed", scenes=("scene:seed",))],
+    )
+    evidence = [{"kind": "event", "ref_id": "event:advance"}]
+    current["traversal"] = {
+        "reachable_scene_ids": ["scene:seed"],
+        "visited_scene_ids": ["scene:seed"],
+    }
+    current["front_progress"] = [
+        {
+            "id": "front:tide",
+            "status": "advanced",
+            "stage": 2,
+            "source_ref": None,
+            "evidence_refs": evidence,
+        }
+    ]
+    current["thread_progress"] = [
+        {
+            "id": "thread:ship",
+            "status": "advanced",
+            "source_ref": None,
+            "evidence_refs": evidence,
+        }
+    ]
+    current["arc_progress"] = [
+        {
+            "id": "arc:hale",
+            "actor_id": "investigator:hale",
+            "actor_kind": "pc",
+            "status": "advanced",
+            "completed_opportunity_ids": ["opportunity:choice"],
+            "source_ref": None,
+            "evidence_refs": evidence,
+        }
+    ]
+    successor = copy.deepcopy(current)
+    mutation(successor)
+    with pytest.raises(ValueError, match=message):
+        validate_playthrough_transition(current, successor)
+
+
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
         (lambda value: value.update(campaign_line_id="other"), "campaign_line_id"),
         (lambda value: value.update(module_ids=[]), "must not be empty"),
         (

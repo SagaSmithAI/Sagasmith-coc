@@ -32,9 +32,9 @@ Agent 不会继承资源所有者权限，模型也无法伪造工具参数提�
 
 ## Upgrade
 
-1. Deploy `sagasmith-core` containing auth-context v2 and bounded event/revision
-   offsets. The locked compatibility floor is
-   `612bfe7e5290eb5b23f2811baa83b8a28293b36e`.
+1. Deploy `sagasmith-core` containing auth-context v2, bounded event/revision
+   offsets, and bounded exact actor-event reads. The locked compatibility floor is
+   `59173c2fe3b80637a0890062dff381b38aa325fe`.
 2. Deploy this dual-era MCP and verify the legacy stdio and HTTP contract tests.
 3. Upgrade the Host/Agent to send v2 delegation on every modern request and use
    the stable catalog.

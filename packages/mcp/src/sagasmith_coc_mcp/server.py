@@ -654,6 +654,27 @@ def _authority_page(
     return page, None, False
 
 
+def _authority_search_page(
+    fetch_page: Callable[[int, int], list[PageItem]],
+    *,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> tuple[list[PageItem], str | None, bool]:
+    """Page a Core-ranked search without materializing or re-ranking its full result set."""
+
+    if isinstance(limit, bool) or not 1 <= int(limit) <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    offset = _page_offset(cursor)
+    batch = fetch_page(int(limit) + 1, offset)
+    page = batch[: int(limit)]
+    has_more = len(batch) > int(limit)
+    return (
+        page,
+        _page_cursor(offset + len(page)) if has_more else None,
+        has_more,
+    )
+
+
 def _auth_receipt_revision(value: Any) -> int | str | None:
     if not isinstance(value, dict):
         return None
@@ -2325,6 +2346,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
 
         design_front_ids: set[str] = set()
         design_thread_ids: set[str] = set()
+        design_clue_ids: set[str] = set()
         design_arc_ids: set[str] = set()
         arc_opportunity_ids: dict[str, set[str]] = {}
         referenced_scene_ids: set[str] = set()
@@ -2361,6 +2383,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 for opportunity in arc["opportunities"]:
                     referenced_scene_ids.update(str(item) for item in opportunity["scene_ids"])
             for clue in design["clues"]:
+                design_clue_ids.add(str(clue["id"]))
                 referenced_scene_ids.update(str(item) for item in clue["fallback_scene_ids"])
             for signal in design["foreshadowing"]:
                 referenced_scene_ids.update(str(item) for item in signal["payoff_scene_ids"])
@@ -2390,7 +2413,94 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     f"arc_progress {arc['id']!r} references unknown opportunities: "
                     + ", ".join(unknown)
                 )
+        attest_playthrough_evidence(
+            campaign_id,
+            manifest,
+            scene_ids=atlas_scene_ids,
+            clue_ids=design_clue_ids,
+        )
         return manifest
+
+    def attest_playthrough_evidence(
+        campaign_id: str,
+        manifest: dict[str, Any],
+        *,
+        scene_ids: set[str],
+        clue_ids: set[str],
+    ) -> None:
+        """Require plot progress evidence to exist on the checked-out branch."""
+
+        requested = {
+            (str(ref["kind"]), str(ref["ref_id"]))
+            for field in ("front_progress", "thread_progress", "arc_progress")
+            for progress in manifest[field]
+            for ref in progress["evidence_refs"]
+        }
+        if not requested:
+            return
+        branch_id = current_branch_id(campaign_id)
+        available: dict[str, set[str]] = {
+            "event": set(),
+            "snapshot": set(),
+            "scene": set(scene_ids),
+            "memory_fact": set(),
+            "conversation": set(),
+            "clue": set(clue_ids),
+        }
+        needed_event_scan = any(kind in {"event", "conversation"} for kind, _ in requested)
+        if needed_event_scan:
+            offset = 0
+            while offset <= 100_000:
+                batch = events.list(campaign_id, limit=100, offset=offset, branch_id=branch_id)
+                for event in batch:
+                    available["event"].update({event.id, f"event:{event.id}"})
+                    payload = dict(event.payload or {})
+                    conversation_id = (
+                        str(payload.get("conversation_id") or "")
+                        if event.event_type == "npc_conversation"
+                        else ""
+                    )
+                    if conversation_id:
+                        available["conversation"].update(
+                            {conversation_id, f"conversation:{conversation_id}", event.id}
+                        )
+                offset += len(batch)
+                if len(batch) < 100:
+                    break
+        if any(kind == "snapshot" for kind, _ in requested):
+            for snapshot in snapshots.list(campaign_id):
+                if str(snapshot.branch_id) != branch_id:
+                    continue
+                available["snapshot"].update(
+                    {
+                        str(snapshot.id),
+                        f"snapshot:{snapshot.id}",
+                        str(snapshot.slot),
+                    }
+                )
+        if any(kind == "memory_fact" for kind, _ in requested):
+            for fact in memories.list(
+                campaign_id, branch_id=branch_id, include_inactive=True
+            ):
+                available["memory_fact"].update(
+                    {
+                        str(fact.id),
+                        str(fact.fact_key),
+                        str(fact.revision_id),
+                        f"memory:{fact.id}",
+                        f"memory_fact:{fact.fact_key}",
+                    }
+                )
+        missing = sorted(
+            f"{kind}:{ref_id}"
+            for kind, ref_id in requested
+            if ref_id not in available[kind]
+        )
+        if missing:
+            raise ValueError(
+                "playthrough progress evidence_refs are not attested on the active branch: "
+                + ", ".join(missing)
+            )
 
     def require_playthrough_modules_survive(module_ids: set[str], *, operation: str) -> None:
         """Reject Pack lifecycle writes that would invalidate a stored campaign line."""
@@ -5236,21 +5346,28 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         effective_query = query or str(data.get("query") or "").strip()
         page_limit = int(data.get("limit", limit))
         page_cursor = cursor or data.get("cursor")
-        values = (
-            memories.search(
-                campaign_id,
-                effective_query or " ",
-                limit=100,
-                branch_id=branch_id,
-                include_inactive=bool(data.get("include_inactive", False)),
+        if action == "search":
+            page, next_cursor, has_more = _authority_search_page(
+                lambda search_limit, offset: [
+                    asdict(item)
+                    for item in memories.search(
+                        campaign_id,
+                        effective_query or " ",
+                        limit=search_limit,
+                        offset=offset,
+                        branch_id=branch_id,
+                        include_inactive=bool(data.get("include_inactive", False)),
+                    )
+                ],
+                limit=page_limit,
+                cursor=page_cursor,
             )
-            if action == "search"
-            else memories.list(
-                campaign_id,
-                kind=data.get("kind"),
-                branch_id=branch_id,
-                include_inactive=bool(data.get("include_inactive", False)),
-            )
+            return {"memories": page, "next_cursor": next_cursor, "has_more": has_more}
+        values = memories.list(
+            campaign_id,
+            kind=data.get("kind"),
+            branch_id=branch_id,
+            include_inactive=bool(data.get("include_inactive", False)),
         )
         page, next_cursor, has_more = _filtered_page(
             [asdict(item) for item in values],
@@ -5640,6 +5757,31 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             limit=200,
             branch_id=branch_id,
         )
+        exact_event_ids: list[str] = []
+        seen_event_ids: set[str] = set()
+        for current_ref in current_refs:
+            normalized_ref = str(current_ref or "").strip()
+            if not normalized_ref.startswith("event:"):
+                continue
+            event_id = normalized_ref.removeprefix("event:").strip()
+            if not event_id or event_id in seen_event_ids:
+                continue
+            exact_event_ids.append(event_id)
+            seen_event_ids.add(event_id)
+            if len(exact_event_ids) == 128:
+                break
+        exact_matches = (
+            events.list_for_actor_event_ids(
+                campaign_id,
+                actor_id=actor_id,
+                event_ids=exact_event_ids,
+                knowledge_disclosure_scopes=disclosure_scopes,
+                audience=event_audience,
+                branch_id=branch_id,
+            )
+            if exact_event_ids
+            else []
+        )
         older_matches = (
             events.search_for_actor(
                 campaign_id,
@@ -5659,7 +5801,14 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 for item in older_matches
                 if item.audience_scope in {"public", "party", "actor"}
             ]
-        by_event_id = {item.id: item for item in [*recent_events, *older_matches]}
+            exact_matches = [
+                item
+                for item in exact_matches
+                if item.audience_scope in {"public", "party", "actor"}
+            ]
+        by_event_id = {
+            item.id: item for item in [*recent_events, *older_matches, *exact_matches]
+        }
         actor_record = asdict(actor)
         sheet = dict(actor_record.get("sheet") or {})
         actor_projection = {
@@ -5717,6 +5866,12 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             audience = "player"
         if actor_id is not None:
             actor_access(campaign_id, actor_id, principal_id)
+        requested_related_refs = list(related_refs or [])
+        continuity_related_refs = [
+            item
+            for item in requested_related_refs
+            if not str(item or "").strip().startswith("event:")
+        ]
         result = continuity.context(
             campaign_id,
             query=str(query or ""),
@@ -5726,7 +5881,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             branch_id=resolved_branch,
             limit=int(limit),
             budget_chars=int(budget_chars),
-            related_refs=list(related_refs or []),
+            related_refs=continuity_related_refs,
         )
         if purpose is None:
             return result
@@ -5744,7 +5899,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     actor_id=actor_id,
                     branch_id=resolved_branch,
                     query=str(query or ""),
-                    current_refs=list(related_refs or []),
+                    current_refs=requested_related_refs,
                     budget_chars=min(int(budget_chars), 12_000),
                     principal_id=principal_id,
                 ),
@@ -5793,7 +5948,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     actor_id=actor.id,
                     branch_id=resolved_branch,
                     query=str(query or ""),
-                    current_refs=list(related_refs or []),
+                    current_refs=requested_related_refs,
                     budget_chars=min(int(budget_chars), 8_000),
                     principal_id=principal_id,
                 ),
@@ -5858,7 +6013,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "branch_id": resolved_branch,
             "limit": int(limit),
             "budget_chars": int(budget_chars),
-            "related_refs": list(related_refs or []),
+            "related_refs": requested_related_refs,
         }
         campaign = campaigns.get(campaign_id)
         bundle_id = f"bounded:{uuid4().hex}"
@@ -5964,7 +6119,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             branch_id=str(context_request.get("branch_id") or ""),
             limit=int(context_request.get("limit", 8)),
             budget_chars=int(context_request.get("budget_chars", 12_000)),
-            related_refs=list(context_request.get("related_refs") or []),
+            related_refs=[
+                item
+                for item in list(context_request.get("related_refs") or [])
+                if not str(item or "").strip().startswith("event:")
+            ],
         )
         if purpose in {"actor_turn", "audience_render"} and subject_ref_value.startswith("actor:"):
             refreshed = {
@@ -6872,24 +7031,32 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         effective_query = query or str(data.get("query") or "").strip()
         page_limit = int(data.get("limit", limit))
         page_cursor = cursor or data.get("cursor")
-        values = (
-            knowledge.search(
-                campaign_id,
-                actor_id=actor_id,
-                query=effective_query or " ",
-                branch_id=branch_id,
-                limit=100,
-                include_inactive=bool(data.get("include_inactive", False)),
-                disclosure_scopes=disclosure_scopes,
+        if action == "search":
+            page, next_cursor, has_more = _authority_search_page(
+                lambda search_limit, offset: [
+                    asdict(item)
+                    for item in knowledge.search(
+                        campaign_id,
+                        actor_id=actor_id,
+                        query=effective_query or " ",
+                        branch_id=branch_id,
+                        limit=search_limit,
+                        offset=offset,
+                        include_inactive=bool(data.get("include_inactive", False)),
+                        disclosure_scopes=disclosure_scopes,
+                    )
+                    if item.disclosure_scope in disclosure_scopes
+                ],
+                limit=page_limit,
+                cursor=page_cursor,
             )
-            if action == "search"
-            else knowledge.list(
-                campaign_id,
-                actor_id=actor_id,
-                branch_id=branch_id,
-                include_inactive=bool(data.get("include_inactive", False)),
-                disclosure_scopes=disclosure_scopes,
-            )
+            return {"knowledge": page, "next_cursor": next_cursor, "has_more": has_more}
+        values = knowledge.list(
+            campaign_id,
+            actor_id=actor_id,
+            branch_id=branch_id,
+            include_inactive=bool(data.get("include_inactive", False)),
+            disclosure_scopes=disclosure_scopes,
         )
         values = [item for item in values if item.disclosure_scope in disclosure_scopes]
         page, next_cursor, has_more = _filtered_page(

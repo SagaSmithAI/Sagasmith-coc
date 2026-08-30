@@ -25,9 +25,10 @@ the same filters. This applies to module drafts, rule sources, module/scene/prog
 indexes and search, objective memory, actor knowledge, branches, snapshot lists and
 lineage, investigation history, campaign events, and state-revision history. Event
 and revision cursors are pushed into Core, so records after the first 100 remain
-reachable without loading complete campaign history into the MCP process. The
-locked CI lane uses Core `612bfe7e5290eb5b23f2811baa83b8a28293b36e`, the first
-Core release commit with those bounded authority offsets.
+reachable without loading complete campaign history into the MCP process. Actor
+memory can also resolve up to 128 exact `event:<id>` references through Core actor,
+branch, knowledge-disclosure, and audience policy. The locked CI lane uses Core
+`59173c2fe3b80637a0890062dff381b38aa325fe` for both authority contracts.
 
 Expected, model-repairable
 failures return `isError: true` with actionable guidance. Protocol/input failures
@@ -65,7 +66,7 @@ authoritative phase, modern catalogs remain stable and the Host updates only its
 selection. The legacy adapter may emit `tools/list_changed` for old clients.
 
 Snapshots remain independently restorable full state documents at the public
-boundary. Core schema v8 stores each document as one bounded, checksummed
+boundary. Core schema v9 stores each document as one bounded, checksummed
 `zlib-1` record. Snapshot query/restore, branch checkout, undo/redo, and restart
 recovery do not replay an ancestor chain.
 
@@ -204,9 +205,9 @@ State defaults to `.sagasmith-coc-mcp/`. The main configuration variables are:
 - `SAGASMITH_AUTH_CONTEXT_SECRET` (required for non-loopback HTTP, at least 32 bytes)
 
 The server applies Core Alembic migrations at startup and requires the current
-Snapshot schema v8. Before deployment, stop the server and take a consistent
+Snapshot schema v9. Before deployment, stop the server and take a consistent
 backup of `data/ttrpgbase.db` after its SQLite WAL has settled, or use the
-external database's native backup mechanism. Snapshot schema v8 has no in-place
+external database's native backup mechanism. Snapshot schema v9 has no in-place
 downgrade. Protocol compatibility is dual-era: modern is the default and legacy
 is an explicit migration/rollback adapter. Data rollback restores the database
 together with matching Core, CoC, and MCP versions as one unit.
