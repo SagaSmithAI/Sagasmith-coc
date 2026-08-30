@@ -283,7 +283,9 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
         "List, search, or read audience-authorized investigators with bounded pagination."
     ),
     "character_change": (
-        "Create or atomically update an investigator under campaign authority guards."
+        "Create or atomically update an investigator, NPC, or creature under "
+        "campaign authority guards. "
+        "Use data.character_type (investigator, npc, or creature)."
     ),
     "module_query": "Read bounded module, scene, retrieval, or compilation projections.",
     "module_change": "Apply an idempotent, authority-checked module or scene mutation.",
@@ -418,7 +420,11 @@ def _argument_error(code: str, message: str, *, retryable: bool, recovery: str) 
 
 def _classify_tool_error(message: str) -> dict[str, Any]:
     normalized = message.casefold()
-    if "stale" in normalized or "revision" in normalized and "match" in normalized:
+    if (
+        "stale" in normalized
+        or "revision" in normalized
+        and ("match" in normalized or "expected memory revision" in normalized)
+    ):
         return _argument_error(
             "stale_revision",
             message,
@@ -513,6 +519,14 @@ def _validate_contract_arguments(arguments: Mapping[str, Any]) -> None:
         limit = arguments["limit"]
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("limit must be an integer between 1 and 100")
+
+
+def _require_data_fields(data: Mapping[str, Any], *fields: str) -> None:
+    """Report facade-owned nested requirements before dispatch reaches services."""
+
+    missing = [field for field in fields if field not in data or data[field] in (None, "")]
+    if missing:
+        raise ValueError(f"data.{missing[0]} is required")
 
 
 def _output_schema(tool_name: str) -> dict[str, Any]:
@@ -2760,9 +2774,14 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         return campaign_audience_view(campaign_id, principal_id)
 
     @mcp.tool()
-    def game_phase(campaign_id: str, principal_id: str = "system:local") -> dict[str, str]:
+    def game_phase(campaign_id: str, principal_id: str = "system:local") -> dict[str, Any]:
         access.require_campaign(campaign_id, principal_id)
-        return {"campaign_id": campaign_id, "phase": authoritative_phase(campaign_id)}
+        campaign = campaigns.get(campaign_id)
+        return {
+            "campaign_id": campaign_id,
+            "phase": authoritative_phase(campaign_id),
+            "revision": campaign.revision,
+        }
 
     @mcp.tool()
     def playthrough_manifest(
@@ -2854,13 +2873,20 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             name = str(data.get("name") or "").strip()
             if not name:
                 raise ValueError("data.name is required")
+            settings = dict(data.get("settings") or {})
+            for field in ("era", "locale"):
+                if field in data:
+                    value = str(data[field] or "").strip()
+                    if not value:
+                        raise ValueError(f"data.{field} must be a non-empty string")
+                    settings[field] = value
             created = campaigns.create_owned(
                 system_id="coc7e",
                 name=name,
                 principal_id=principal_id,
                 idempotency_key=str(data.get("idempotency_key") or uuid4().hex),
                 description=str(data.get("description") or ""),
-                settings=dict(data.get("settings") or {}),
+                settings=settings,
                 state={
                     "game_phase": PROFILE_LOBBY,
                     "random_stream": initial_random_stream(f"sagasmith-coc:{uuid4().hex}"),
@@ -2872,6 +2898,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             raise ValueError("campaign_id is required")
         require_dm(campaign_id, principal_id)
         if action == "set_phase":
+            _require_data_fields(data, "expected_revision")
             phase = str(data.get("phase") or "")
             if phase not in {PROFILE_LOBBY, PROFILE_PLAY}:
                 raise ValueError(
@@ -2954,16 +2981,27 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
     def character_change(
         action: Literal["create", "instantiate", "update"],
         campaign_id: str,
-        data: dict[str, Any],
+        data: Annotated[
+            dict[str, Any],
+            Field(
+                description=(
+                    "Operation-specific object. All actions require idempotency_key. "
+                    "create and instantiate also require expected_campaign_revision; "
+                    "create requires character_type (investigator, npc, or creature), "
+                    "name, and sheet. instantiate requires template_id. update requires "
+                    "expected_revision."
+                )
+            ),
+        ],
         character_id: str | None = None,
         principal_id: str = "system:local",
     ) -> dict[str, Any]:
         membership = access.require_campaign(campaign_id, principal_id)
-        key = str(data.get("idempotency_key") or "").strip()
-        if not key:
-            raise ValueError("data.idempotency_key is required")
+        _require_data_fields(data, "idempotency_key")
+        key = str(data["idempotency_key"]).strip()
         if action == "instantiate":
             require_dm(campaign_id, principal_id)
+            _require_data_fields(data, "expected_campaign_revision")
             template_id = str(data.get("template_id") or "").strip()
             if not template_id:
                 raise ValueError("data.template_id is required")
@@ -2992,6 +3030,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             )
             return asdict(created.character)
         if action == "create":
+            _require_data_fields(data, "expected_campaign_revision")
+            if "type" in data and "character_type" not in data:
+                raise ValueError(
+                    "data.character_type is required; use npc, creature, or investigator"
+                )
             character_type = str(data.get("character_type") or "investigator")
             if character_type not in {"investigator", "npc", "creature"}:
                 raise ValueError("character_type must be investigator, npc, or creature")
@@ -3026,8 +3069,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         }:
             raise PermissionError("combat character mutations require Keeper authority")
         current = characters.get(character_id)
-        if "expected_revision" not in data:
-            raise ValueError("data.expected_revision is required")
+        _require_data_fields(data, "expected_revision")
         updated = {
             **asdict(current),
             "name": str(data.get("name", current.name)),
@@ -5379,14 +5421,18 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
 
     @mcp.tool()
     def memory_change(
-        action: Literal["add", "upsert", "revise", "commit"],
+        action: Literal["add", "upsert", "revise", "retract", "forget", "commit"],
         campaign_id: str,
         data: dict[str, Any],
         principal_id: str = "system:local",
         expected_revision: int | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        """Write objective facts or atomically settle one investigation outcome."""
+        """Write objective facts or atomically settle one investigation outcome.
+
+        ``retract`` and ``forget`` append inactive revisions; they never delete
+        the memory row and remain recoverable with ``include_inactive``.
+        """
 
         require_dm(campaign_id, principal_id)
         key = str(idempotency_key or "").strip()
@@ -5559,7 +5605,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 metadata=(dict(data["metadata"]) if data.get("metadata") is not None else None),
                 branch_id=branch_id,
                 expected_revision_id=data.get("expected_revision_id"),
-                status=data.get("status"),
+                status=(
+                    "retracted"
+                    if action == "retract"
+                    else "forgotten"
+                    if action == "forget"
+                    else data.get("status")
+                ),
                 source_event_ids=(
                     list(data["source_event_ids"])
                     if data.get("source_event_ids") is not None
