@@ -115,3 +115,61 @@ def test_game_phase_returns_revision_promised_by_public_contract(tmp_path: Path)
         }
 
     asyncio.run(exercise())
+
+
+def test_nested_mutation_requirements_are_actionable(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = _server(tmp_path)
+        created = await server.call_tool(
+            "campaign_change",
+            {"action": "create", "data": {"name": "Nested requirements"}},
+        )
+        campaign_id = created.structured_content["id"]
+        with pytest.raises(ToolError, match=r"data\.expected_campaign_revision is required"):
+            await server.call_tool(
+                "character_change",
+                {
+                    "action": "create",
+                    "campaign_id": campaign_id,
+                    "data": {"name": "Missing guard", "idempotency_key": "missing-guard"},
+                },
+            )
+
+    asyncio.run(exercise())
+
+
+def test_character_type_and_campaign_locale_are_not_silently_discarded(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = _server(tmp_path)
+        created = await server.call_tool(
+            "campaign_change",
+            {
+                "action": "create",
+                "data": {
+                    "name": "Metadata contract",
+                    "era": "1927",
+                    "locale": "Dunwich, Massachusetts",
+                },
+            },
+        )
+        campaign_id = created.structured_content["id"]
+        assert created.structured_content["settings"] == {
+            "era": "1927",
+            "locale": "Dunwich, Massachusetts",
+        }
+        with pytest.raises(ToolError, match=r"data\.character_type is required"):
+            await server.call_tool(
+                "character_change",
+                {
+                    "action": "create",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "name": "Typed NPC",
+                        "type": "npc",
+                        "idempotency_key": "typed-npc",
+                        "expected_campaign_revision": 1,
+                    },
+                },
+            )
+
+    asyncio.run(exercise())

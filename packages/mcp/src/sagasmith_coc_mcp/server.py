@@ -283,7 +283,8 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
         "List, search, or read audience-authorized investigators with bounded pagination."
     ),
     "character_change": (
-        "Create or atomically update an investigator under campaign authority guards."
+        "Create or atomically update an investigator, NPC, or creature under campaign authority guards. "
+        "Use data.character_type (investigator, npc, or creature)."
     ),
     "module_query": "Read bounded module, scene, retrieval, or compilation projections.",
     "module_change": "Apply an idempotent, authority-checked module or scene mutation.",
@@ -1085,6 +1086,9 @@ class RequestScopedMCPServer(MCPServer):
             result = await super().call_tool(name, bound, context)
         except UnexpectedToolError as exc:
             cause = exc.__cause__
+            if isinstance(cause, KeyError):
+                missing = str(cause.args[0]) if cause.args else "required field"
+                raise ToolError(f"data.{missing} is required") from cause
             if isinstance(cause, (LookupError, PermissionError, ValueError)):
                 raise ToolError(str(cause)) from cause
             raise
@@ -2859,13 +2863,20 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             name = str(data.get("name") or "").strip()
             if not name:
                 raise ValueError("data.name is required")
+            settings = dict(data.get("settings") or {})
+            for field in ("era", "locale"):
+                if field in data:
+                    value = str(data[field] or "").strip()
+                    if not value:
+                        raise ValueError(f"data.{field} must be a non-empty string")
+                    settings[field] = value
             created = campaigns.create_owned(
                 system_id="coc7e",
                 name=name,
                 principal_id=principal_id,
                 idempotency_key=str(data.get("idempotency_key") or uuid4().hex),
                 description=str(data.get("description") or ""),
-                settings=dict(data.get("settings") or {}),
+                settings=settings,
                 state={
                     "game_phase": PROFILE_LOBBY,
                     "random_stream": initial_random_stream(f"sagasmith-coc:{uuid4().hex}"),
@@ -2997,6 +3008,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             )
             return asdict(created.character)
         if action == "create":
+            if "type" in data and "character_type" not in data:
+                raise ValueError("data.character_type is required; use npc, creature, or investigator")
             character_type = str(data.get("character_type") or "investigator")
             if character_type not in {"investigator", "npc", "creature"}:
                 raise ValueError("character_type must be investigator, npc, or creature")
