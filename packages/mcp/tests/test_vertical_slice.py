@@ -3054,3 +3054,79 @@ def test_tools_advertise_agent_domain_context_contract(tmp_path) -> None:
         tool.meta.get("sagasmith_domain_context") == "sagasmith-coc" for tool in tools.values()
     )
     assert tools["campaign_query"].meta.get("sagasmith_context_sync") is True
+
+
+def test_generated_module_start_validates_before_persistence_and_indexes_headings(tmp_path) -> None:
+    config = McpConfig(
+        home=tmp_path / "home",
+        database_url=None,
+        coc_skills_dir=tmp_path / "missing-coc-skills",
+        modulegen_skills_dir=tmp_path / "missing-modulegen-skills",
+    )
+    server = create_server(config)
+
+    async def scenario() -> None:
+        campaign = await call(
+            server,
+            "campaign_change",
+            {"action": "create", "data": {"name": "Generated validation", "idempotency_key": "c"}},
+        )
+        campaign_id = campaign["id"]
+        with pytest.raises(
+            Exception, match="generated start data contains unsupported fields: package_id"
+        ):
+            await server.call_tool(
+                "module_draft",
+                {
+                    "action": "start",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "name": "Unindexable",
+                        "content": "single-line prose without a section",
+                        "package_id": "caller-selected",
+                    },
+                    "idempotency_key": "bad-generated-start",
+                },
+            )
+        jobs = await call(server, "module_draft", {"action": "get", "campaign_id": campaign_id})
+        assert jobs["jobs"] == []
+        with pytest.raises(
+            Exception, match="generated start content must contain at least one Markdown heading"
+        ):
+            await server.call_tool(
+                "module_draft",
+                {
+                    "action": "start",
+                    "campaign_id": campaign_id,
+                    "data": {"name": "Still unindexable", "content": "plain prose only"},
+                    "idempotency_key": "bad-generated-content",
+                },
+            )
+        jobs = await call(server, "module_draft", {"action": "get", "campaign_id": campaign_id})
+        assert jobs["jobs"] == []
+
+        valid = await call(
+            server,
+            "module_draft",
+            {
+                "action": "start",
+                "campaign_id": campaign_id,
+                "data": {
+                    "name": "Indexed generated",
+                    "content": (
+                        "# Arrival\nInvestigators arrive.\n## Hall\nA stopped clock hides a clue."
+                    ),
+                },
+                "idempotency_key": "valid-generated-start",
+            },
+        )
+        assert valid["status"] == "editing"
+        evidence = await call(
+            server,
+            "module_draft",
+            {"action": "evidence", "campaign_id": campaign_id, "data": {"job_id": valid["job_id"]}},
+        )
+        assert evidence["evidence"]
+        assert evidence["evidence"][0]["source_ref"]["chunk_hash"]
+
+    asyncio.run(scenario())
