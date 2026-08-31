@@ -64,6 +64,7 @@ def test_module_draft_contract_discriminates_package_workflow(tmp_path: Path) ->
         tools = await _server(tmp_path).list_tools()
         module_draft = next(tool for tool in tools if tool.name == "module_draft")
         schema = module_draft.input_schema
+        assert "edit(operation=advance)" in module_draft.description
         Draft202012Validator.check_schema(schema)
         validator = Draft202012Validator(schema)
 
