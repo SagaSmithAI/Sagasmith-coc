@@ -4076,7 +4076,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         limit: PageLimit = 50,
         cursor: PageCursor = None,
     ) -> dict[str, Any]:
-        """Build a CoC Module Pack through start, advance, evidence, package edit, and finalize.
+        """Build a CoC Module Pack via start, edit(operation=advance), evidence, and finalize.
 
         The public input schema exposes each action's exact data shape. Re-read the returned
         import-job revision before every guarded edit or finalization, and use only real
