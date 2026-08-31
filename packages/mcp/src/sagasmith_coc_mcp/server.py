@@ -1312,7 +1312,12 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             value = arguments.get(key)
             if not value:
                 continue
-            character = characters.get(str(value))
+            try:
+                character = characters.get(str(value))
+            except LookupError as exc:
+                raise ExposureError(
+                    "actor target was not found in the exposure campaign"
+                ) from exc
             if character.campaign_id != exposure.campaign_id:
                 raise ExposureError("actor target does not match the exposure campaign")
 

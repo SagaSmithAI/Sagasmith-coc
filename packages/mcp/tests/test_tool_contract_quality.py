@@ -192,3 +192,55 @@ def test_character_type_and_campaign_locale_are_not_silently_discarded(tmp_path:
             )
 
     asyncio.run(exercise())
+
+
+def test_legacy_scope_validation_returns_safe_error_for_unknown_actor(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = _server(tmp_path)
+        created = await server.call_tool(
+            "campaign_change",
+            {"action": "create", "data": {"name": "Unknown actor scope"}},
+        )
+        campaign_id = created.structured_content["id"]
+        session_key = "legacy:unknown-actor"
+        exposure = server.exposure_registry.open(
+            session_key=session_key,
+            principal_id="system:local",
+            campaign_id=campaign_id,
+            phase="lobby",
+        )
+        server.exposure_registry.set_tools(exposure, add=["character_query"])
+        context = SimpleNamespace(
+            protocol_version="2025-11-25",
+            meta={},
+            request=SimpleNamespace(headers={}),
+            session=SimpleNamespace(
+                _connection=SimpleNamespace(session_id=session_key),
+            ),
+        )
+
+        result = await server._handle_call_tool(
+            context,
+            CallToolRequestParams(
+                name="character_query",
+                arguments={
+                    "action": "get",
+                    "campaign_id": campaign_id,
+                    "character_id": "missing-actor",
+                },
+            ),
+        )
+        assert result.is_error is True
+        assert result.structured_content == {
+            "error": {
+                "code": "not_found",
+                "message": "actor target was not found in the exposure campaign",
+                "retryable": False,
+                "recovery": (
+                    "List or query the relevant authorized records and retry with an "
+                    "existing identifier."
+                ),
+            }
+        }
+
+    asyncio.run(exercise())
