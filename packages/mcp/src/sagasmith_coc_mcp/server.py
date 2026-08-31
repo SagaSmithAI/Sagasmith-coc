@@ -835,6 +835,10 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
                                         "type": "string",
                                         "minLength": 1,
                                         "maxLength": 65536,
+                                        "description": (
+                                            "Markdown source with at least one ATX heading "
+                                            "(# through ######) so scenes/chunks are indexable."
+                                        ),
                                     },
                                     "title": {"type": "string", "maxLength": 500},
                                     "source_key": {"type": "string", "maxLength": 512},
@@ -4111,6 +4115,19 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             if not key:
                 raise ValueError("idempotency_key is required to start a module draft")
             source_path = data.get("source_path")
+            if source_path is None:
+                allowed_generated_fields = {"name", "content", "title", "source_key"}
+                unknown_fields = sorted(set(data) - allowed_generated_fields)
+                if unknown_fields:
+                    raise ValueError(
+                        "generated start data contains unsupported fields: "
+                        + ", ".join(unknown_fields)
+                    )
+                content = str(data.get("content") or "")
+                if not re.search(r"(?m)^\s{0,3}#{1,6}\s+\S", content):
+                    raise ValueError(
+                        "generated start content must contain at least one Markdown heading"
+                    )
             generated_fields = {"name", "content"}.intersection(data)
             if source_path is not None and generated_fields:
                 raise ValueError("start accepts either source_path or name+content, not both")
