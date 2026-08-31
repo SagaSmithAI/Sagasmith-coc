@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolRequestParams
 
@@ -54,6 +55,108 @@ def test_character_change_data_contract_advertises_nested_guards(tmp_path: Path)
         assert "expected_campaign_revision" in description
         assert "character_type" in description
         assert "expected_revision" in description
+
+    asyncio.run(exercise())
+
+
+def test_module_draft_contract_discriminates_package_workflow(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        tools = await _server(tmp_path).list_tools()
+        module_draft = next(tool for tool in tools if tool.name == "module_draft")
+        schema = module_draft.input_schema
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+
+        source_ref = {
+            "source_key": "generated-scenario.md",
+            "page": 1,
+            "chunk_hash": "a" * 64,
+            "note": "Agent-reviewed source evidence: scenario brief",
+        }
+        play_profile = {
+            "investigator_count": {
+                "minimum": 2,
+                "maximum": 4,
+                "source_refs": [source_ref],
+            },
+            "ruleset": {
+                "supported": ["classic"],
+                "recommended": "classic",
+                "source_refs": [source_ref],
+            },
+            "era": {"value": "1920s", "source_refs": [source_ref]},
+            "estimated_sessions": {
+                "minimum": 1,
+                "maximum": 3,
+                "source_refs": [source_ref],
+            },
+            "pregenerated_characters": {
+                "available": False,
+                "applicability": "None",
+                "source_refs": [source_ref],
+            },
+            "solo_play": {"supported": False, "source_refs": [source_ref]},
+        }
+        package_edit = {
+            "action": "edit",
+            "campaign_id": "campaign-1",
+            "expected_revision": 4,
+            "idempotency_key": "package-edit-1",
+            "data": {
+                "job_id": "job-1",
+                "operation": "package",
+                "manifest": {
+                    "title": "The Lantern Below",
+                    "classification": "scenario",
+                    "compatibility": {
+                        "editions": ["7e"],
+                        "required_capabilities": ["module_pack_v2"],
+                    },
+                    "activation": {"mode": "campaign_attach", "default_active": False},
+                    "continuity": {
+                        "series_id": None,
+                        "order": None,
+                        "continues_from": None,
+                        "state_policy": {},
+                    },
+                    "play_profile": play_profile,
+                },
+                "narrative": {"dossiers": [], "endings": []},
+            },
+        }
+        assert list(validator.iter_errors(package_edit)) == []
+
+        finalize = {
+            "action": "finalize",
+            "campaign_id": "campaign-1",
+            "expected_revision": 5,
+            "idempotency_key": "finalize-1",
+            "data": {
+                "job_id": "job-1",
+                "package_id": "package-1",
+                "confirmation": {
+                    "confirmed": True,
+                    "note": "Reviewed source receipts and Pack decisions.",
+                },
+            },
+        }
+        assert list(validator.iter_errors(finalize)) == []
+
+        for missing in ("expected_revision", "idempotency_key"):
+            invalid = dict(finalize)
+            invalid.pop(missing)
+            assert list(validator.iter_errors(invalid)), missing
+        invalid_confirmation = {
+            **finalize,
+            "data": {"job_id": "job-1", "package_id": "package-1"},
+        }
+        assert list(validator.iter_errors(invalid_confirmation))
+
+        data_description = schema["properties"]["data"]["description"]
+        revision_description = schema["properties"]["expected_revision"]["description"]
+        assert "finalize requires job_id, package_id" in data_description
+        assert "Import-job revision" in revision_description
+        assert len(schema["allOf"]) == 4
 
     asyncio.run(exercise())
 
