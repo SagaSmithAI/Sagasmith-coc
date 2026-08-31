@@ -907,6 +907,65 @@ def test_memory_and_actor_knowledge_revision_and_retirement_lifecycle(tmp_path: 
     asyncio.run(exercise())
 
 
+def test_memory_change_campaign_revision_guard_uses_core_atomic_contract(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, _ = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        expected_revision = campaign["revision"]
+        base = {
+            "campaign_id": campaign_id,
+            "data": {
+                "fact_key": "guarded-fact",
+                "kind": "fact",
+                "subject_ref": "location:chapel",
+                "predicate": "state",
+                "content": "The chapel door is locked.",
+            },
+            "idempotency_key": "guarded-add",
+        }
+        with pytest.raises(Exception, match="campaign revision conflict"):
+            await call(server, "memory_change", {**base, "action": "add", "expected_revision": 999})
+        fact = await call(
+            server,
+            "memory_change",
+            {**base, "action": "add", "expected_revision": expected_revision},
+        )
+        revise = {
+            "campaign_id": campaign_id,
+            "action": "revise",
+            "data": {
+                "memory_id": fact["id"],
+                "content": "The chapel door is open.",
+                "expected_revision_id": fact["revision_id"],
+            },
+            "idempotency_key": "guarded-revise",
+        }
+        with pytest.raises(Exception, match="campaign revision conflict"):
+            await call(server, "memory_change", {**revise, "expected_revision": 999})
+        revised = await call(
+            server, "memory_change", {**revise, "expected_revision": expected_revision}
+        )
+        retract = {
+            "campaign_id": campaign_id,
+            "action": "retract",
+            "data": {
+                "memory_id": fact["id"],
+                "content": revised["content"],
+                "expected_revision_id": revised["revision_id"],
+            },
+            "idempotency_key": "guarded-retract",
+        }
+        with pytest.raises(Exception, match="campaign revision conflict"):
+            await call(server, "memory_change", {**retract, "expected_revision": 999})
+        retracted = await call(
+            server, "memory_change", {**retract, "expected_revision": expected_revision}
+        )
+        assert retracted["status"] == "retracted"
+
+    asyncio.run(exercise())
+
+
 def test_campaign_expansion_is_keeper_only_lobby_review_and_never_writes_state(
     tmp_path: Path,
 ) -> None:
