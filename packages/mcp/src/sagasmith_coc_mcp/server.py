@@ -5977,6 +5977,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     source_event_ids=list(data.get("source_event_ids") or []),
                     importance=int(data.get("importance", 3)),
                     disclosure_scope=data.get("disclosure_scope"),
+                    expected_campaign_revision=(
+                        int(expected_revision) if expected_revision is not None else None
+                    ),
                     idempotency_key=key,
                     idempotency_write=atomic_write,
                 )
@@ -6006,6 +6009,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     ),
                     importance=int(data.get("importance", 3)),
                     disclosure_scope=data.get("disclosure_scope"),
+                    expected_campaign_revision=(
+                        int(expected_revision) if expected_revision is not None else None
+                    ),
                     idempotency_key=key,
                     idempotency_write=atomic_write,
                 )
@@ -6033,6 +6039,9 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     int(data["importance"]) if data.get("importance") is not None else None
                 ),
                 disclosure_scope=data.get("disclosure_scope"),
+                expected_campaign_revision=(
+                    int(expected_revision) if expected_revision is not None else None
+                ),
                 idempotency_key=key,
                 idempotency_write=atomic_write,
             )
