@@ -566,6 +566,362 @@ def _output_schema(tool_name: str) -> dict[str, Any]:
     }
 
 
+def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
+    """Advertise the stateful Module Pack workflow as an action-discriminated contract."""
+
+    schema = deepcopy(dict(parameters))
+    properties = dict(schema.get("properties") or {})
+    data_schema = dict(properties.get("data") or {})
+    data_schema["description"] = (
+        "Action-specific Module Pack payload. Inspect the matching action branch in allOf: "
+        "start accepts source_path or name+content; evidence requires job_id; edit requires "
+        "job_id and operation; finalize requires job_id, package_id, and explicit confirmation."
+    )
+    properties["data"] = data_schema
+    properties["expected_revision"]["description"] = (
+        "Import-job revision returned by module_draft, not the campaign revision. Required "
+        "for edit except operation=advance, and for finalize."
+    )
+    schema["properties"] = properties
+
+    source_ref = {
+        "type": "object",
+        "description": "Real source receipt returned by module_draft(evidence).",
+        "required": ["source_key", "chunk_hash", "note"],
+        "properties": {
+            "source_key": {"type": "string", "minLength": 1, "maxLength": 512},
+            "page": {"type": ["integer", "null"], "minimum": 1},
+            "chunk_hash": {"type": "string", "minLength": 1, "maxLength": 256},
+            "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+        },
+        "additionalProperties": False,
+    }
+
+    def cited(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "required": [*required, "source_refs"],
+            "properties": {
+                **properties,
+                "source_refs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 128,
+                    "items": deepcopy(source_ref),
+                },
+            },
+            "additionalProperties": False,
+        }
+
+    play_profile = {
+        "type": "object",
+        "description": (
+            "Source-backed play envelope. Every decision requires at least one real evidence "
+            "receipt; generated prose is not evidence."
+        ),
+        "required": [
+            "investigator_count",
+            "ruleset",
+            "era",
+            "estimated_sessions",
+            "pregenerated_characters",
+            "solo_play",
+        ],
+        "properties": {
+            "investigator_count": cited(
+                {
+                    "minimum": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "maximum": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                ["minimum", "maximum"],
+            ),
+            "ruleset": cited(
+                {
+                    "supported": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 80},
+                    },
+                    "recommended": {"type": "string", "minLength": 1, "maxLength": 80},
+                },
+                ["supported", "recommended"],
+            ),
+            "era": cited(
+                {"value": {"type": "string", "minLength": 1, "maxLength": 120}},
+                ["value"],
+            ),
+            "estimated_sessions": cited(
+                {
+                    "minimum": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "maximum": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                ["minimum", "maximum"],
+            ),
+            "pregenerated_characters": cited(
+                {
+                    "available": {"type": "boolean"},
+                    "applicability": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000,
+                    },
+                },
+                ["available", "applicability"],
+            ),
+            "solo_play": cited(
+                {"supported": {"type": "boolean"}},
+                ["supported"],
+            ),
+        },
+        "additionalProperties": False,
+    }
+    manifest = {
+        "type": "object",
+        "description": "Module Pack manifest decisions; supply the complete object when edited.",
+        "required": [
+            "title",
+            "classification",
+            "compatibility",
+            "play_profile",
+            "continuity",
+            "activation",
+        ],
+        "properties": {
+            "title": {"type": "string", "minLength": 1, "maxLength": 500},
+            "classification": {
+                "enum": ["scenario", "campaign", "solo_adventure", "handout_pack"]
+            },
+            "compatibility": {
+                "type": "object",
+                "required": ["editions"],
+                "properties": {
+                    "editions": {
+                        "type": "array",
+                        "contains": {"const": "7e"},
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 80},
+                    },
+                    "required_capabilities": {
+                        "type": "array",
+                        "maxItems": 64,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                },
+                "additionalProperties": False,
+            },
+            "activation": {
+                "type": "object",
+                "required": ["mode", "default_active"],
+                "properties": {
+                    "mode": {"const": "campaign_attach"},
+                    "default_active": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
+            "continuity": {
+                "type": "object",
+                "required": ["series_id", "order", "continues_from", "state_policy"],
+                "properties": {
+                    "series_id": {"type": ["string", "null"], "maxLength": 256},
+                    "order": {"type": ["integer", "null"], "minimum": 0},
+                    "continues_from": {"type": ["string", "null"], "maxLength": 256},
+                    "state_policy": {"type": "object", "maxProperties": 128},
+                },
+                "additionalProperties": False,
+            },
+            "play_profile": play_profile,
+        },
+        "additionalProperties": False,
+    }
+    narrative = {
+        "type": "object",
+        "description": "Generated narrative dossiers and endings retained in the finalized Pack.",
+        "properties": {
+            "dossiers": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {"type": "object", "maxProperties": 128},
+            },
+            "endings": {
+                "type": "array",
+                "maxItems": 128,
+                "items": {"type": "object", "maxProperties": 128},
+            },
+        },
+        "additionalProperties": True,
+    }
+    package_edit = {
+        "type": "object",
+        "required": ["job_id", "operation"],
+        "properties": {
+            "job_id": {"type": "string", "minLength": 1, "maxLength": 256},
+            "operation": {"const": "package"},
+            "note": {"type": "string", "maxLength": 2000},
+            "manifest": manifest,
+            "narrative": narrative,
+            "catalogs": {"type": "object", "maxProperties": 256},
+            "dependencies": {"type": "object", "maxProperties": 256},
+            "runtime_design": {"type": "object", "maxProperties": 256},
+            "metadata": {"type": "object", "maxProperties": 256},
+            "version": {"type": ["string", "integer", "object"]},
+        },
+        "anyOf": [
+            {"required": [field]}
+            for field in (
+                "manifest",
+                "narrative",
+                "catalogs",
+                "dependencies",
+                "runtime_design",
+                "metadata",
+                "version",
+            )
+        ],
+        "additionalProperties": False,
+    }
+    other_edit = {
+        "type": "object",
+        "required": ["job_id", "operation"],
+        "properties": {
+            "job_id": {"type": "string", "minLength": 1, "maxLength": 256},
+            "operation": {
+                "enum": ["advance", "source_text", "content", "statblock", "asset", "actor"]
+            },
+        },
+        "additionalProperties": True,
+        "maxProperties": 128,
+    }
+    confirmation = {
+        "type": "object",
+        "description": "Explicit Agent review decision required before immutable finalization.",
+        "required": ["confirmed", "note"],
+        "properties": {
+            "confirmed": {"const": True},
+            "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+        },
+        "additionalProperties": False,
+    }
+
+    schema["allOf"] = [
+        {
+            "if": {"properties": {"action": {"const": "start"}}, "required": ["action"]},
+            "then": {
+                "required": ["data", "idempotency_key"],
+                "properties": {
+                    "data": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "required": ["source_path"],
+                                "properties": {
+                                    "source_path": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 65536,
+                                    },
+                                    "title": {"type": "string", "maxLength": 500},
+                                    "source_key": {"type": "string", "maxLength": 512},
+                                },
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "required": ["name", "content"],
+                                "properties": {
+                                    "name": {"type": "string", "minLength": 1, "maxLength": 512},
+                                    "content": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 65536,
+                                    },
+                                    "title": {"type": "string", "maxLength": 500},
+                                    "source_key": {"type": "string", "maxLength": 512},
+                                },
+                                "additionalProperties": False,
+                            },
+                        ]
+                    }
+                },
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "evidence"}}, "required": ["action"]},
+            "then": {
+                "required": ["data"],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["job_id"],
+                        "properties": {
+                            "job_id": {"type": "string", "minLength": 1, "maxLength": 256},
+                            "kind": {"enum": ["chunks", "assets", "reviews", "page"]},
+                            "query": {"type": "string", "maxLength": 256},
+                            "scene_id": {"type": "string", "maxLength": 256},
+                            "page": {"type": "integer", "minimum": 1},
+                            "page_number": {"type": "integer", "minimum": 1},
+                            "scale": {"type": "number", "exclusiveMinimum": 0},
+                            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                        },
+                        "additionalProperties": False,
+                    }
+                },
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "edit"}}, "required": ["action"]},
+            "then": {
+                "required": ["data", "idempotency_key"],
+                "properties": {"data": {"oneOf": [package_edit, other_edit]}},
+                "allOf": [
+                    {
+                        "if": {
+                            "properties": {
+                                "data": {
+                                    "type": "object",
+                                    "properties": {"operation": {"const": "advance"}},
+                                    "required": ["operation"],
+                                }
+                            }
+                        },
+                        "else": {"required": ["expected_revision"]},
+                    }
+                ],
+            },
+        },
+        {
+            "if": {
+                "properties": {"action": {"const": "finalize"}},
+                "required": ["action"],
+            },
+            "then": {
+                "required": ["data", "expected_revision", "idempotency_key"],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["job_id", "package_id", "confirmation"],
+                        "properties": {
+                            "job_id": {"type": "string", "minLength": 1, "maxLength": 256},
+                            "package_id": {"type": "string", "minLength": 1, "maxLength": 256},
+                            "confirmation": confirmation,
+                            "manifest": manifest,
+                            "narrative": narrative,
+                            "catalogs": {"type": "object", "maxProperties": 256},
+                            "dependencies": {"type": "object", "maxProperties": 256},
+                            "runtime_design": {"type": "object", "maxProperties": 256},
+                            "metadata": {"type": "object", "maxProperties": 256},
+                            "version": {"type": ["string", "integer", "object"]},
+                        },
+                        "additionalProperties": False,
+                    }
+                },
+            },
+        },
+    ]
+    return schema
+
+
 def _page_offset(cursor: str | None) -> int:
     """Decode a server-issued cursor without exposing storage offsets to callers."""
 
@@ -3720,7 +4076,12 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         limit: PageLimit = 50,
         cursor: PageCursor = None,
     ) -> dict[str, Any]:
-        """Create, inspect, evidence-review, edit, and finalize one CoC Module Pack draft."""
+        """Build a CoC Module Pack through start, advance, evidence, package edit, and finalize.
+
+        The public input schema exposes each action's exact data shape. Re-read the returned
+        import-job revision before every guarded edit or finalization, and use only real
+        module_draft(evidence) source receipts for source-backed play-profile decisions.
+        """
 
         require_dm(campaign_id, principal_id)
         require_lobby(campaign_id, f"module_draft({action})")
@@ -9835,6 +10196,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 parameter_schema.setdefault("maxLength", 256)
             if parameter_schema.get("type") == "array":
                 parameter_schema.setdefault("maxItems", _MAX_COLLECTION_ITEMS)
+        if tool_name == "module_draft":
+            parameters = _module_draft_parameters(parameters)
         registered_tool.parameters = parameters
         registered_tool.__dict__.pop("output_schema", None)
         registered_tool.fn_metadata.output_schema = _output_schema(tool_name)
