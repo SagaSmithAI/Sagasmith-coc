@@ -966,6 +966,304 @@ def test_memory_change_campaign_revision_guard_uses_core_atomic_contract(tmp_pat
     asyncio.run(exercise())
 
 
+def test_memory_source_events_are_branch_authorized_before_any_mutation(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, _actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        original = await call(
+            server, "branch_query", {"action": "current", "campaign_id": campaign_id}
+        )
+        original_branch_id = original["branch"]["id"]
+        valid_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "The party sees the chapel door open.",
+                    "audience_scope": "party",
+                },
+                "idempotency_key": "valid-memory-source",
+            },
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        checkpoint = await call(
+            server,
+            "snapshot_change",
+            {
+                "action": "create",
+                "campaign_id": campaign_id,
+                "data": {"label": "Before the fork", "expected_head_snapshot_id": ""},
+                "expected_revision": current["revision"],
+                "expected_branch_id": original_branch_id,
+                "idempotency_key": "memory-source-checkpoint",
+            },
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        fork = await call(
+            server,
+            "branch_change",
+            {
+                "action": "create",
+                "campaign_id": campaign_id,
+                "data": {
+                    "name": "Fork-only evidence",
+                    "from_snapshot_id": checkpoint["id"],
+                    "checkout": True,
+                },
+                "expected_revision": current["revision"],
+                "expected_branch_id": original_branch_id,
+                "idempotency_key": "memory-source-fork",
+            },
+        )
+        fork_branch_id = fork["branch"]["id"]
+        fork_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "Only the fork sees the broken chapel bell.",
+                    "audience_scope": "party",
+                },
+                "idempotency_key": "fork-only-memory-source",
+            },
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        await call(
+            server,
+            "snapshot_change",
+            {
+                "action": "create",
+                "campaign_id": campaign_id,
+                "data": {
+                    "label": "Fork-only evidence saved",
+                    "expected_head_snapshot_id": checkpoint["id"],
+                },
+                "expected_revision": current["revision"],
+                "expected_branch_id": fork_branch_id,
+                "idempotency_key": "memory-source-fork-checkpoint",
+            },
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        await call(
+            server,
+            "branch_change",
+            {
+                "action": "checkout",
+                "campaign_id": campaign_id,
+                "data": {"branch_id": original_branch_id},
+                "expected_revision": current["revision"],
+                "expected_branch_id": fork_branch_id,
+                "idempotency_key": "return-to-original-for-memory",
+            },
+        )
+        private_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "The Keeper records the hidden bell mechanism.",
+                    "audience_scope": "dm",
+                },
+                "idempotency_key": "private-memory-source",
+            },
+        )
+        other_campaign = await call(
+            server,
+            "campaign_change",
+            {
+                "action": "create",
+                "data": {"name": "Unrelated case", "idempotency_key": "other-case"},
+            },
+        )
+        other_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": other_campaign["id"],
+                "data": {"summary": "Evidence from another campaign."},
+                "idempotency_key": "other-case-event",
+            },
+        )
+
+        before_campaign = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        before_memories = await call(
+            server,
+            "memory_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "data": {"include_inactive": True},
+            },
+        )
+        before_events = await call(
+            server,
+            "campaign_event",
+            {"action": "list", "campaign_id": campaign_id},
+        )
+        rejected = (
+            ("forged", ["event:missing"], "dm", "unavailable"),
+            ("cross-campaign", [other_event["id"]], "dm", "unavailable"),
+            ("cross-branch", [fork_event["id"]], "dm", "unavailable"),
+            ("private-source", [private_event["id"]], "party", "not visible"),
+        )
+        for name, source_event_ids, disclosure_scope, message in rejected:
+            with pytest.raises(Exception, match=message):
+                await call(
+                    server,
+                    "memory_change",
+                    {
+                        "action": "add",
+                        "campaign_id": campaign_id,
+                        "data": {
+                            "fact_key": f"rejected-{name}",
+                            "content": f"Rejected {name} fact.",
+                            "source_event_ids": source_event_ids,
+                            "disclosure_scope": disclosure_scope,
+                        },
+                        "expected_revision": before_campaign["revision"],
+                        "idempotency_key": f"rejected-{name}",
+                    },
+                )
+        with pytest.raises(Exception, match="unavailable"):
+            await call(
+                server,
+                "memory_change",
+                {
+                    "action": "commit",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "event": {"summary": "This invalid settlement must roll back."},
+                        "facts": [
+                            {
+                                "action": "add",
+                                "fact_key": "rejected-commit-source",
+                                "content": "This fact must not survive.",
+                                "source_event_ids": ["event:missing"],
+                            }
+                        ],
+                    },
+                    "expected_revision": before_campaign["revision"],
+                    "idempotency_key": "rejected-commit-source",
+                },
+            )
+        with pytest.raises(Exception, match="campaign revision conflict"):
+            await call(
+                server,
+                "memory_change",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "fact_key": "rejected-stale",
+                        "content": "A stale write must not survive.",
+                        "source_event_ids": [valid_event["id"]],
+                        "disclosure_scope": "party",
+                    },
+                    "expected_revision": 999,
+                    "idempotency_key": "rejected-stale",
+                },
+            )
+        after_rejections = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        memories_after_rejections = await call(
+            server,
+            "memory_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "data": {"include_inactive": True},
+            },
+        )
+        assert after_rejections["revision"] == before_campaign["revision"]
+        assert memories_after_rejections == before_memories
+        assert await call(
+            server,
+            "campaign_event",
+            {"action": "list", "campaign_id": campaign_id},
+        ) == before_events
+
+        add = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "fact_key": "chapel-door-open",
+                "content": "The chapel door is open.",
+                "source_event_ids": [valid_event["id"]],
+                "disclosure_scope": "party",
+            },
+            "expected_revision": before_campaign["revision"],
+            "idempotency_key": "valid-source-add",
+        }
+        added = await call(server, "memory_change", add)
+        assert await call(server, "memory_change", add) == added
+        revised = await call(
+            server,
+            "memory_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "data": {
+                    "memory_id": added["id"],
+                    "content": "The chapel door remains open.",
+                    "expected_revision_id": added["revision_id"],
+                    "source_event_ids": [valid_event["id"]],
+                },
+                "expected_revision": before_campaign["revision"],
+                "idempotency_key": "valid-source-revise",
+            },
+        )
+        with pytest.raises(Exception, match="unavailable"):
+            await call(
+                server,
+                "memory_change",
+                {
+                    "action": "revise",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "memory_id": added["id"],
+                        "content": "This revision must not survive.",
+                        "expected_revision_id": revised["revision_id"],
+                        "source_event_ids": [fork_event["id"]],
+                    },
+                    "expected_revision": before_campaign["revision"],
+                    "idempotency_key": "cross-branch-source-revise",
+                },
+            )
+        final_memories = await call(
+            server,
+            "memory_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "data": {"include_inactive": True},
+            },
+        )
+        assert [(item["id"], item["revision_id"]) for item in final_memories["memories"]] == [
+            (added["id"], revised["revision_id"])
+        ]
+
+    asyncio.run(exercise())
+
+
 def test_campaign_expansion_is_keeper_only_lobby_review_and_never_writes_state(
     tmp_path: Path,
 ) -> None:

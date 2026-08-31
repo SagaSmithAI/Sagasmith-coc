@@ -5968,6 +5968,64 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         )
         return {"memories": page, "next_cursor": next_cursor, "has_more": has_more}
 
+    def validate_memory_source_events(
+        campaign_id: str,
+        *,
+        branch_id: str,
+        source_event_ids: Any,
+        disclosure_scope: str,
+        field: str,
+    ) -> None:
+        """Require every explicit memory source to be visible on the selected branch."""
+
+        if source_event_ids is None:
+            return
+        if not isinstance(source_event_ids, list):
+            raise ValueError(f"{field} must be a list")
+        if len(source_event_ids) > 128:
+            raise ValueError(f"{field} must contain at most 128 entries")
+        if any(not isinstance(item, str) or not item.strip() for item in source_event_ids):
+            raise ValueError(f"{field} entries must be non-empty strings")
+        requested = {item.strip() for item in source_event_ids}
+        if not requested:
+            return
+
+        visible: dict[str, Any] = {}
+        offset = 0
+        while requested - set(visible):
+            if offset > 100_000:
+                break
+            page = events.list(
+                campaign_id,
+                branch_id=branch_id,
+                limit=500,
+                offset=offset,
+            )
+            for event in page:
+                if event.id in requested:
+                    visible[event.id] = event
+            if len(page) < 500:
+                break
+            offset += 500
+        if unavailable := sorted(requested - set(visible)):
+            raise ValueError(
+                f"{field} contains events unavailable in campaign branch {branch_id}: "
+                f"{unavailable}"
+            )
+
+        if disclosure_scope != "dm":
+            permitted = {"public", "party", "player"}
+            restricted = sorted(
+                event_id
+                for event_id, event in visible.items()
+                if event.audience_scope not in permitted
+            )
+            if restricted:
+                raise PermissionError(
+                    f"{field} contains events not visible to {disclosure_scope!r} memory: "
+                    f"{restricted}"
+                )
+
     @mcp.tool()
     def memory_change(
         action: Literal["add", "upsert", "revise", "retract", "forget", "commit"],
@@ -6055,6 +6113,33 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     raise ValueError(
                         f"data.facts[{index}].expected_revision_id is required for revisions"
                     )
+                current_fact = (
+                    next(
+                        (
+                            item
+                            for item in current_facts.values()
+                            if item.id == str(fact.get("memory_id") or "")
+                        ),
+                        None,
+                    )
+                    if fact_action == "revise"
+                    else current_facts.get(str(fact.get("fact_key") or ""))
+                )
+                disclosure_scope = str(
+                    fact.get("disclosure_scope")
+                    or (
+                        current_fact.disclosure_scope
+                        if current_fact is not None
+                        else dict(fact.get("metadata") or {}).get("disclosure_scope", "dm")
+                    )
+                )
+                validate_memory_source_events(
+                    campaign_id,
+                    branch_id=branch_id,
+                    source_event_ids=fact.get("source_event_ids"),
+                    disclosure_scope=disclosure_scope,
+                    field=f"data.facts[{index}].source_event_ids",
+                )
             for index, item in enumerate(knowledge_data):
                 if str(item.get("action") or "add") == "revise" and not item.get(
                     "expected_revision_id"
@@ -6093,6 +6178,49 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             return replay
         if expected_revision is not None:
             require_campaign_revision(campaign_id, int(expected_revision))
+        if data.get("source_event_ids") is not None:
+            current_memory = None
+            if action == "upsert":
+                current_memory = next(
+                    (
+                        item
+                        for item in memories.list(
+                            campaign_id,
+                            branch_id=branch_id,
+                            include_inactive=True,
+                        )
+                        if item.fact_key == str(data.get("fact_key") or "")
+                    ),
+                    None,
+                )
+            elif action not in {"add"}:
+                current_memory = next(
+                    (
+                        item
+                        for item in memories.list(
+                            campaign_id,
+                            branch_id=branch_id,
+                            include_inactive=True,
+                        )
+                        if item.id == str(data.get("memory_id") or "")
+                    ),
+                    None,
+                )
+            disclosure_scope = str(
+                data.get("disclosure_scope")
+                or (
+                    current_memory.disclosure_scope
+                    if current_memory is not None
+                    else dict(data.get("metadata") or {}).get("disclosure_scope", "dm")
+                )
+            )
+            validate_memory_source_events(
+                campaign_id,
+                branch_id=branch_id,
+                source_event_ids=data.get("source_event_ids"),
+                disclosure_scope=disclosure_scope,
+                field="data.source_event_ids",
+            )
         atomic_write = IdempotencyWrite(
             scope=scope,
             payload=request,
