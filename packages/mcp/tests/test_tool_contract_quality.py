@@ -162,6 +162,79 @@ def test_module_draft_contract_discriminates_package_workflow(tmp_path: Path) ->
     asyncio.run(exercise())
 
 
+def test_invalid_module_pack_edit_is_rejected_without_mutating_job(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        server = _server(tmp_path)
+        created = await server.call_tool(
+            "campaign_change",
+            {"action": "create", "data": {"name": "Atomic Pack decisions"}},
+        )
+        campaign_id = created.structured_content["id"]
+        started = await server.call_tool(
+            "module_draft",
+            {
+                "action": "start",
+                "campaign_id": campaign_id,
+                "idempotency_key": "atomic-pack-start",
+                "data": {
+                    "name": "atomic-pack.md",
+                    "title": "Atomic Pack",
+                    "content": (
+                        "# Arkham\n## The Lantern Room\n"
+                        "Two investigators find a source-backed clue in 1927."
+                    ),
+                },
+            },
+        )
+        job_id = started.structured_content["job_id"]
+        before = await server.call_tool(
+            "module_draft",
+            {"action": "get", "campaign_id": campaign_id, "data": {"job_id": job_id}},
+        )
+        before_job = before.structured_content["job"]
+
+        with pytest.raises(
+            ToolError,
+            match=r"play_profile\.investigator_count requires minimum/maximum",
+        ):
+            await server.call_tool(
+                "module_draft",
+                {
+                    "action": "edit",
+                    "campaign_id": campaign_id,
+                    "expected_revision": before_job["revision"],
+                    "idempotency_key": "invalid-pack-edit",
+                    "data": {
+                        "job_id": job_id,
+                        "operation": "package",
+                        "manifest": {
+                            "title": "Atomic Pack",
+                            "classification": "scenario",
+                            "compatibility": {"editions": ["7e"]},
+                            "play_profile": {
+                                "investigator_count": {"min": 2, "max": 4},
+                                "ruleset": "classic",
+                                "era": "1927",
+                                "estimated_sessions": {"min": 1, "max": 2},
+                                "pregenerated_characters": [],
+                                "solo_play": False,
+                            },
+                            "continuity": {"runtime_design": "emergent_seed"},
+                            "activation": {"mode": "manual"},
+                        },
+                    },
+                },
+            )
+
+        after = await server.call_tool(
+            "module_draft",
+            {"action": "get", "campaign_id": campaign_id, "data": {"job_id": job_id}},
+        )
+        assert after.structured_content["job"] == before_job
+
+    asyncio.run(exercise())
+
+
 def test_advertised_bounds_are_enforced_before_dispatch(tmp_path: Path) -> None:
     async def exercise() -> None:
         server = _server(tmp_path)

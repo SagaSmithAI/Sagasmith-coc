@@ -39,6 +39,7 @@ from sagasmith_coc.content_packages import (
     build_module_content_package,
     build_rule_content_package,
     validate_coc_content_package,
+    validate_module_pack_decisions,
 )
 from sagasmith_coc.engine.character_state import (
     change_inventory,
@@ -738,6 +739,7 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
     narrative = {
         "type": "object",
         "description": "Generated narrative dossiers and endings retained in the finalized Pack.",
+        "required": ["dossiers", "endings"],
         "properties": {
             "dossiers": {
                 "type": "array",
@@ -750,7 +752,33 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
                 "items": {"type": "object", "maxProperties": 128},
             },
         },
-        "additionalProperties": True,
+        "additionalProperties": False,
+    }
+    catalogs = {
+        "type": "object",
+        "required": ["clues", "handouts", "encounters", "hazards", "tomes", "spells", "mechanics"],
+        "properties": {
+            field: {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {"type": "object", "maxProperties": 128},
+            }
+            for field in (
+                "clues",
+                "handouts",
+                "encounters",
+                "hazards",
+                "tomes",
+                "spells",
+                "mechanics",
+            )
+        },
+        "additionalProperties": False,
+    }
+    dependencies = {
+        "type": "array",
+        "maxItems": 128,
+        "items": {"type": "object", "maxProperties": 64},
     }
     package_edit = {
         "type": "object",
@@ -761,11 +789,11 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
             "note": {"type": "string", "maxLength": 2000},
             "manifest": manifest,
             "narrative": narrative,
-            "catalogs": {"type": "object", "maxProperties": 256},
-            "dependencies": {"type": "object", "maxProperties": 256},
+            "catalogs": catalogs,
+            "dependencies": dependencies,
             "runtime_design": {"type": "object", "maxProperties": 256},
             "metadata": {"type": "object", "maxProperties": 256},
-            "version": {"type": ["string", "integer", "object"]},
+            "version": {"type": "string", "minLength": 1, "maxLength": 128},
         },
         "anyOf": [
             {"required": [field]}
@@ -907,11 +935,11 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
                             "confirmation": confirmation,
                             "manifest": manifest,
                             "narrative": narrative,
-                            "catalogs": {"type": "object", "maxProperties": 256},
-                            "dependencies": {"type": "object", "maxProperties": 256},
+                            "catalogs": catalogs,
+                            "dependencies": dependencies,
                             "runtime_design": {"type": "object", "maxProperties": 256},
                             "metadata": {"type": "object", "maxProperties": 256},
-                            "version": {"type": ["string", "integer", "object"]},
+                            "version": {"type": "string", "minLength": 1, "maxLength": 128},
                         },
                         "additionalProperties": False,
                     }
@@ -5046,6 +5074,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     )
                 if not decisions:
                     raise ValueError("module Pack edit requires at least one decision field")
+                validate_module_pack_decisions(decisions)
                 draft = {**dict(prior.get("pack_draft") or {}), **decisions}
                 package_history = [
                     *list(prior.get("pack_edit_history") or []),

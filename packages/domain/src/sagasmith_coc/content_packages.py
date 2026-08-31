@@ -142,8 +142,11 @@ def _validate_module_profile(value: Mapping[str, Any]) -> None:
         )
         or maximum < minimum
     ):
-        raise ValueError("CoC module investigator_count requires a valid positive range")
-    _require_source_refs(investigator_count, "CoC module investigator_count")
+        raise ValueError(
+            "CoC module play_profile.investigator_count requires minimum/maximum "
+            "as a valid positive range"
+        )
+    _require_source_refs(investigator_count, "CoC module play_profile.investigator_count")
 
     ruleset = value["ruleset"]
     if not isinstance(ruleset, Mapping):
@@ -177,10 +180,121 @@ def _validate_module_profile(value: Mapping[str, Any]) -> None:
         )
         or session_max < session_min
     ):
-        raise ValueError("CoC module estimated_sessions requires a valid positive range")
+        raise ValueError(
+            "CoC module play_profile.estimated_sessions requires minimum/maximum "
+            "as a valid positive range"
+        )
     for field, key in (("pregenerated_characters", "available"), ("solo_play", "supported")):
         if not isinstance(value[field].get(key), bool):
             raise ValueError(f"CoC module {field}.{key} must be a boolean")
+
+
+def validate_module_pack_decisions(value: Mapping[str, Any]) -> None:
+    """Validate each supplied Module Pack draft decision before it is persisted."""
+
+    manifest = value.get("manifest")
+    if manifest is not None:
+        if not isinstance(manifest, Mapping):
+            raise ValueError("module Pack manifest must be an object")
+        required = {
+            "title",
+            "classification",
+            "compatibility",
+            "play_profile",
+            "continuity",
+            "activation",
+        }
+        missing = sorted(required - set(manifest))
+        unsupported = sorted(set(manifest) - required)
+        if missing or unsupported:
+            details = []
+            if missing:
+                details.append("missing fields: " + ", ".join(missing))
+            if unsupported:
+                details.append("unsupported fields: " + ", ".join(unsupported))
+            raise ValueError("module Pack manifest has " + "; ".join(details))
+        title = str(manifest.get("title") or "").strip()
+        if not 1 <= len(title) <= 500:
+            raise ValueError("module Pack manifest.title must contain 1 to 500 characters")
+        classification = str(manifest.get("classification") or "")
+        if classification not in MODULE_CLASSIFICATIONS:
+            raise ValueError(
+                "module Pack manifest.classification must be scenario, campaign, "
+                "solo_adventure, or handout_pack"
+            )
+        compatibility = manifest.get("compatibility")
+        if not isinstance(compatibility, Mapping):
+            raise ValueError("module Pack manifest.compatibility must be an object")
+        editions = compatibility.get("editions")
+        if not isinstance(editions, list) or "7e" not in editions:
+            raise ValueError("module Pack manifest.compatibility.editions must include 7e")
+        profile = manifest.get("play_profile")
+        if not isinstance(profile, Mapping):
+            raise ValueError("module Pack manifest.play_profile must be an object")
+        _validate_module_profile(profile)
+        continuity = manifest.get("continuity")
+        if not isinstance(continuity, Mapping):
+            raise ValueError("module Pack manifest.continuity must be an object")
+        continuity_fields = {"series_id", "order", "continues_from", "state_policy"}
+        if set(continuity) != continuity_fields:
+            raise ValueError(
+                "module Pack manifest.continuity requires exactly series_id, order, "
+                "continues_from, and state_policy"
+            )
+        if not isinstance(continuity.get("state_policy"), Mapping):
+            raise ValueError("module Pack manifest.continuity.state_policy must be an object")
+        activation = manifest.get("activation")
+        if not isinstance(activation, Mapping):
+            raise ValueError("module Pack manifest.activation must be an object")
+        if set(activation) != {"mode", "default_active"}:
+            raise ValueError(
+                "module Pack manifest.activation requires exactly mode and default_active"
+            )
+        if activation.get("mode") != "campaign_attach":
+            raise ValueError("module Pack manifest.activation.mode must be campaign_attach")
+        if not isinstance(activation.get("default_active"), bool):
+            raise ValueError("module Pack manifest.activation.default_active must be a boolean")
+
+    catalogs = value.get("catalogs")
+    if catalogs is not None:
+        if not isinstance(catalogs, Mapping):
+            raise ValueError("module Pack catalogs must be an object")
+        missing = sorted(MODULE_CATALOG_FIELDS - set(catalogs))
+        unsupported = sorted(set(catalogs) - MODULE_CATALOG_FIELDS)
+        non_arrays = sorted(name for name, items in catalogs.items() if not isinstance(items, list))
+        if missing or unsupported or non_arrays:
+            raise ValueError(
+                "module Pack catalogs must contain exactly clues, handouts, encounters, "
+                "hazards, tomes, spells, and mechanics arrays"
+            )
+
+    narrative = value.get("narrative")
+    if narrative is not None:
+        if not isinstance(narrative, Mapping):
+            raise ValueError("module Pack narrative must be an object")
+        if set(narrative) != {"dossiers", "endings"} or any(
+            not isinstance(narrative.get(field), list) for field in ("dossiers", "endings")
+        ):
+            raise ValueError("module Pack narrative requires exactly dossiers and endings arrays")
+
+    dependencies = value.get("dependencies")
+    if dependencies is not None and (
+        not isinstance(dependencies, list)
+        or any(not isinstance(item, Mapping) for item in dependencies)
+    ):
+        raise ValueError("module Pack dependencies must be an array of objects")
+    metadata = value.get("metadata")
+    if metadata is not None and not isinstance(metadata, Mapping):
+        raise ValueError("module Pack metadata must be an object")
+    runtime_design = value.get("runtime_design")
+    if runtime_design is not None:
+        if not isinstance(runtime_design, Mapping):
+            raise ValueError("module Pack runtime_design must be an object")
+        if errors := runtime_manifest_errors(dict(runtime_design)):
+            raise ValueError("invalid module Pack runtime_design: " + "; ".join(errors))
+    version = value.get("version")
+    if version is not None and not str(version).strip():
+        raise ValueError("module Pack version must not be empty")
 
 
 def validate_coc_content_package(package: Mapping[str, Any]) -> dict[str, Any]:
