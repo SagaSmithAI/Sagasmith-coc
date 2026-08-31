@@ -391,7 +391,6 @@ _COLLECTION_OUTPUT_FIELDS = {
     "branches",
     "campaigns",
     "characters",
-    "constraints",
     "conversations",
     "events",
     "history",
@@ -411,6 +410,142 @@ _COLLECTION_OUTPUT_FIELDS = {
     "sources",
     "violations",
 }
+
+
+def _continuity_context_output_schema(properties: dict[str, Any]) -> dict[str, Any]:
+    """Describe every authoritative continuity projection without weakening validation."""
+
+    string_list = {
+        "type": "array",
+        "maxItems": 1_000,
+        "items": {"type": "string"},
+        "uniqueItems": True,
+    }
+    actor_memory_item = {
+        "type": "object",
+        "required": ["basis_ref", "source", "content", "refs", "record", "score"],
+        "properties": {
+            "basis_ref": {"type": "string", "minLength": 1},
+            "source": {"enum": ["actor_state", "actor_knowledge", "event"]},
+            "content": {"type": "string"},
+            "refs": deepcopy(string_list),
+            "record": {"type": "object"},
+            "score": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    }
+    actor_memory = {
+        "type": "object",
+        "required": ["identity", "motivational", "semantic", "episodic", "diagnostics"],
+        "properties": {
+            name: {
+                "type": "array",
+                "maxItems": 1_000,
+                "items": deepcopy(actor_memory_item),
+            }
+            for name in ("identity", "motivational", "semantic", "episodic")
+        }
+        | {"diagnostics": {"type": "object"}},
+        "additionalProperties": False,
+    }
+    properties.update(
+        {
+            "schema_version": {"type": "integer", "const": 1},
+            "purpose": {
+                "type": "string",
+                "enum": [
+                    "actor_memory",
+                    "actor_turn",
+                    "audience_render",
+                    "faction_turn",
+                    "campaign_expansion",
+                    "source_interpretation",
+                    "bounded_ruling",
+                ],
+            },
+            "actor_id": {"type": "string"},
+            "memory": actor_memory,
+            "branch": {"type": "object"},
+            "facts": {"type": "array", "maxItems": 100, "items": {"type": "object"}},
+            "events": {"type": "array", "maxItems": 100, "items": {"type": "object"}},
+            "actor_knowledge": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {"type": "object"},
+            },
+            "module_evidence": {
+                "type": "array",
+                "maxItems": 1_000,
+                "items": {"type": "object"},
+            },
+            "scoped_scene": {"type": ["object", "null"]},
+            "retrieval": {"type": "object"},
+            "subject": {
+                "type": "object",
+                "required": ["kind", "id", "name"],
+                "properties": {
+                    "kind": {"type": "string"},
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+            "stimulus": {"type": ["object", "null"]},
+            "context": {"type": "object"},
+            "constraints": {
+                "type": "object",
+                "required": [
+                    "allowed_basis_refs",
+                    "allowed_target_refs",
+                    "may_roll_dice",
+                    "may_call_tools",
+                    "may_write_state",
+                    "output_contract",
+                ],
+                "properties": {
+                    "allowed_basis_refs": deepcopy(string_list),
+                    "allowed_target_refs": deepcopy(string_list),
+                    "may_roll_dice": {"type": "boolean", "const": False},
+                    "may_call_tools": {"type": "boolean", "const": False},
+                    "may_write_state": {"type": "boolean", "const": False},
+                    "output_contract": {
+                        "type": "string",
+                        "enum": sorted(BOUNDED_OUTPUT_CONTRACTS.values()),
+                    },
+                },
+                "additionalProperties": False,
+            },
+            "delegation": {
+                "type": "object",
+                "required": [
+                    "schema_version",
+                    "task",
+                    "execution",
+                    "inherit_agent_history",
+                    "tools_exposed",
+                    "persist_worker_session",
+                    "authoritative_result",
+                ],
+                "properties": {
+                    "schema_version": {"type": "integer", "const": 1},
+                    "task": {"type": "string", "pattern": "^propose_"},
+                    "execution": {"type": "string", "const": "awaited_fresh_context"},
+                    "inherit_agent_history": {"type": "boolean", "const": False},
+                    "tools_exposed": {"type": "boolean", "const": False},
+                    "persist_worker_session": {"type": "boolean", "const": False},
+                    "authoritative_result": {"type": "boolean", "const": False},
+                },
+                "additionalProperties": False,
+            },
+            "bundle_receipt": {"type": "object"},
+        }
+    )
+    return {
+        "type": "object",
+        "description": "Structured authoritative result for the continuity_context tool.",
+        "properties": properties,
+        "additionalProperties": False,
+    }
 
 
 def _argument_error(code: str, message: str, *, retryable: bool, recovery: str) -> dict[str, Any]:
@@ -559,6 +694,8 @@ def _output_schema(tool_name: str) -> dict[str, Any]:
         },
         "additionalProperties": False,
     }
+    if tool_name == "continuity_context":
+        return _continuity_context_output_schema(properties)
     return {
         "type": "object",
         "description": f"Structured authoritative result for the {tool_name} tool.",
