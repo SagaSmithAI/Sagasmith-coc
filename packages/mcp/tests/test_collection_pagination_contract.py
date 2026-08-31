@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
 from mcp import Client, StdioServerParameters
 from sagasmith_core import RevisionService
 
@@ -167,6 +168,54 @@ def test_real_modern_client_validates_successful_collection_results_against_cata
                     tool_name,
                     collection_key,
                 )
+
+    asyncio.run(exercise())
+
+
+def test_real_modern_client_validates_every_continuity_result_shape(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        campaign_id, actor_id = await _seed_campaign(create_server(_config(tmp_path)))
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "sagasmith_coc_mcp.server"],
+            env=_environment(tmp_path),
+        )
+        async with Client(parameters, mode="2026-07-28") as client:
+            catalog = {tool.name: tool for tool in (await client.list_tools()).tools}
+            schema = catalog["continuity_context"].output_schema
+            assert schema is not None
+            Draft202012Validator.check_schema(schema)
+            validator = Draft202012Validator(schema)
+
+            results = [
+                await client.call_tool("continuity_context", {"campaign_id": campaign_id}),
+                await client.call_tool(
+                    "continuity_context",
+                    {
+                        "campaign_id": campaign_id,
+                        "actor_id": actor_id,
+                        "purpose": "actor_memory",
+                    },
+                ),
+                await client.call_tool(
+                    "continuity_context",
+                    {
+                        "campaign_id": campaign_id,
+                        "purpose": "source_interpretation",
+                        "query": "Interpret the lamp's soot against known evidence.",
+                    },
+                ),
+            ]
+            for result in results:
+                assert result.is_error is False, result.content
+                assert result.structured_content is not None
+                assert list(validator.iter_errors(result.structured_content)) == []
+
+            actor_memory = results[1].structured_content
+            assert actor_memory["memory"]["identity"]
+            bounded = results[2].structured_content
+            assert bounded["constraints"]["may_write_state"] is False
+            assert schema["properties"]["constraints"]["type"] == "object"
 
     asyncio.run(exercise())
 
