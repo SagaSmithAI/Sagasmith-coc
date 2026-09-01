@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from sagasmith_coc.playthrough import new_playthrough_manifest
 from sagasmith_core import IdempotencyService
 
+from sagasmith_coc_mcp import server as server_module
 from sagasmith_coc_mcp.actor_memory import select_actor_memory_context
 from sagasmith_coc_mcp.config import McpConfig
 from sagasmith_coc_mcp.npc_conversations import normalize_conversation_proposal
@@ -2338,6 +2339,102 @@ def test_legacy_authored_pack_uses_scene_only_manifest_and_declared_endings(
         )
         assert any(item["id"] == ending["id"] for item in events["events"])
         assert any(item["id"] == emergent_ending["id"] for item in events["events"])
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("pack_classification", "package_id_override"),
+    [
+        ("solo_adventure", "coc7e.module.alone-against-the-flames.private"),
+        ("scenario", "coc7e.module.the-lightless-beacon.private"),
+    ],
+)
+def test_legacy_current_private_pack_ids_derive_stable_runtime_keys(
+    tmp_path: Path,
+    pack_classification: str,
+    package_id_override: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def exercise() -> None:
+        derived_designs: list[dict] = []
+        original_runtime_manifest_errors = server_module.runtime_manifest_errors
+
+        def capture_runtime_design(design: dict) -> list[str]:
+            derived_designs.append(design)
+            return original_runtime_manifest_errors(design)
+
+        monkeypatch.setattr(
+            server_module, "runtime_manifest_errors", capture_runtime_design
+        )
+        server = create_server(config(tmp_path))
+        campaign, _actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        module_id, scene_ids = await install_runtime_pack(
+            server,
+            campaign_id,
+            module_key="current-private-pack-shape",
+            classification="authored_scenario",
+            root_module_key="current-private-pack-shape",
+            include_runtime_design=False,
+            pack_classification=pack_classification,
+            package_id_override=package_id_override,
+        )
+        manifest = new_playthrough_manifest(
+            campaign_line_id="current-private-pack-line",
+            module_ids=[module_id],
+            campaign_mode="authored_scenario",
+            content_lineage=[
+                {
+                    "module_id": module_id,
+                    "classification": "authored_scenario",
+                    "root_module_id": module_id,
+                    "parent_module_id": "",
+                    "generation": 0,
+                    "scene_ids": scene_ids,
+                    "source_refs": [],
+                }
+            ],
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        initialized = await call(
+            server,
+            "playthrough_manifest",
+            {
+                "action": "initialize",
+                "campaign_id": campaign_id,
+                "manifest": manifest,
+                "expected_revision": current["revision"],
+                "idempotency_key": "current-private-pack-manifest",
+            },
+        )
+        assert initialized["manifest"]["module_ids"] == [module_id]
+        assert derived_designs
+        assert derived_designs[-1]["module_key"] == package_id_override.removeprefix(
+            "coc7e.module."
+        ).replace(".", "-")
+        assert (
+            derived_designs[-1]["lineage"]["root_module_key"]
+            == derived_designs[-1]["module_key"]
+        )
+        assert "." not in derived_designs[-1]["module_key"]
+        ending_arguments = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "summary": "The current private Pack reaches its declared conclusion.",
+                "event_type": "ending",
+                "payload": {
+                    "ending_id": "ending:current-private-pack-shape",
+                    "module_id": module_id,
+                },
+            },
+            "idempotency_key": "current-private-pack-ending",
+        }
+        ending = await call(server, "campaign_event", ending_arguments)
+        assert await call(server, "campaign_event", ending_arguments) == ending
 
     asyncio.run(exercise())
 
