@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from sagasmith_coc.playthrough import new_playthrough_manifest
 from sagasmith_core import IdempotencyService
 
+from sagasmith_coc_mcp import server as server_module
 from sagasmith_coc_mcp.actor_memory import select_actor_memory_context
 from sagasmith_coc_mcp.config import McpConfig
 from sagasmith_coc_mcp.npc_conversations import normalize_conversation_proposal
@@ -2353,8 +2354,19 @@ def test_legacy_current_private_pack_ids_derive_stable_runtime_keys(
     tmp_path: Path,
     pack_classification: str,
     package_id_override: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def exercise() -> None:
+        derived_designs: list[dict] = []
+        original_runtime_manifest_errors = server_module.runtime_manifest_errors
+
+        def capture_runtime_design(design: dict) -> list[str]:
+            derived_designs.append(design)
+            return original_runtime_manifest_errors(design)
+
+        monkeypatch.setattr(
+            server_module, "runtime_manifest_errors", capture_runtime_design
+        )
         server = create_server(config(tmp_path))
         campaign, _actor = await campaign_and_actor(server)
         campaign_id = campaign["id"]
@@ -2399,6 +2411,15 @@ def test_legacy_current_private_pack_ids_derive_stable_runtime_keys(
             },
         )
         assert initialized["manifest"]["module_ids"] == [module_id]
+        assert derived_designs
+        assert derived_designs[-1]["module_key"] == package_id_override.removeprefix(
+            "coc7e.module."
+        ).replace(".", "-")
+        assert (
+            derived_designs[-1]["lineage"]["root_module_key"]
+            == derived_designs[-1]["module_key"]
+        )
+        assert "." not in derived_designs[-1]["module_key"]
         ending_arguments = {
             "action": "add",
             "campaign_id": campaign_id,
