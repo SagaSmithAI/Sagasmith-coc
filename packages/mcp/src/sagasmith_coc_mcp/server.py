@@ -98,7 +98,7 @@ from sagasmith_coc.engine.sheet import (
     development_skill_eligible,
     exact_sheet_value,
 )
-from sagasmith_coc.module_profile import CocModuleProfile
+from sagasmith_coc.module_profile import CocModuleProfile, runtime_manifest_errors
 from sagasmith_coc.playthrough import (
     validate_playthrough_manifest,
     validate_playthrough_transition,
@@ -2936,6 +2936,103 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             storage.write_content_archive(package, blobs),
         )
 
+    def legacy_authored_scene_design(
+        package: dict[str, Any],
+        content: dict[str, Any],
+        scene_ids: list[str],
+    ) -> dict[str, Any] | None:
+        """Describe only the structure old authored Packs actually attest."""
+
+        manifest = dict(package.get("manifest") or {})
+        classification = str(
+            content.get("classification") or manifest.get("classification") or ""
+        ).strip()
+        continuity = dict(content.get("continuity") or manifest.get("continuity") or {})
+        if classification not in {"scenario", "solo_adventure"}:
+            return None
+        if str(continuity.get("continues_from") or "").strip():
+            return None
+        if not scene_ids or not all(scene_ids) or len(scene_ids) != len(set(scene_ids)):
+            return None
+        package_id = str(package.get("id") or "").strip().casefold()
+        prefix = "coc7e.module."
+        module_key = package_id.removeprefix(prefix) if package_id.startswith(prefix) else ""
+        if not module_key:
+            return None
+        design = {
+            "schema_version": 2,
+            "module_key": module_key,
+            "classification": "authored_scenario",
+            "lineage": {
+                "root_module_key": module_key,
+                "parent_module_key": "",
+                "generation": 0,
+            },
+            "entities": [],
+            "secrets": [],
+            "clues": [],
+            "plot_nodes": [],
+            "foreshadowing": [],
+            "branches": [],
+            "fronts": [],
+            "story_threads": [],
+            "character_arcs": [],
+            "scene_links": [],
+        }
+        errors = runtime_manifest_errors(design)
+        if errors:
+            raise ValueError(
+                "legacy authored Pack cannot derive a valid runtime_design: "
+                + "; ".join(errors)
+            )
+        return design
+
+    def active_ending_pack_contracts(
+        campaign_id: str,
+    ) -> dict[str, tuple[str, set[str]]]:
+        """Return runtime classification and declared endings for active Packs."""
+
+        contracts: dict[str, tuple[str, set[str]]] = {}
+        for module in modules.list(campaign_id, include_retired=True):
+            if module.get("active") is not True or str(module.get("parser_profile") or "") != (
+                "content-package"
+            ):
+                continue
+            module_id = str(module.get("id") or module.get("module_id") or "")
+            package, _blobs, _artifact = module_archive(
+                campaign_id,
+                module_id,
+            )
+            content = dict(package.get("content") or {})
+            manifest = dict(package.get("manifest") or {})
+            classification = str(
+                content.get("classification") or manifest.get("classification") or ""
+            ).strip()
+            if classification not in {"scenario", "solo_adventure"}:
+                continue
+            design = content.get("runtime_design")
+            runtime_classification = (
+                str(design.get("classification") or "").strip()
+                if isinstance(design, dict)
+                else "authored_scenario"
+            )
+            if runtime_classification not in {
+                "authored_scenario",
+                "emergent_seed",
+                "emergent_episode",
+            }:
+                continue
+            narrative = dict(content.get("narrative") or {})
+            contracts[module_id] = (
+                runtime_classification,
+                {
+                    str(item.get("id") or "").strip()
+                    for item in list(narrative.get("endings") or [])
+                    if isinstance(item, dict) and str(item.get("id") or "").strip()
+                },
+            )
+        return contracts
+
     def attest_playthrough_manifest(campaign_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
         """Bind a playthrough manifest to active finalized Packs in this campaign."""
 
@@ -2943,7 +3040,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             str(item.get("id") or item.get("module_id") or ""): item
             for item in modules.list(campaign_id, include_retired=True)
         }
-        packs: list[tuple[dict[str, Any], dict[str, Any], set[str]]] = []
+        packs: list[tuple[dict[str, Any], dict[str, Any], set[str], bool]] = []
         by_module_key: dict[str, str] = {}
         atlas_scene_ids: set[str] = set()
         for module_id, lineage in zip(
@@ -2963,26 +3060,42 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             package, _blobs, _artifact = module_archive(campaign_id, module_id)
             content = dict(package.get("content") or {})
             design = content.get("runtime_design")
-            if not isinstance(design, dict):
-                raise ValueError(
-                    f"playthrough module {module_id!r} has no validated runtime_design"
-                )
-            module_key = str(design.get("module_key") or "")
-            if module_key in by_module_key:
-                raise ValueError(f"runtime_design module_key is duplicated: {module_key}")
-            by_module_key[module_key] = module_id
             scene_ids = [
                 str(scene.get("stable_key") or "")
                 for scene in list(content.get("scene_atlas") or [])
                 if isinstance(scene, dict)
             ]
+            legacy_scene_only = False
+            if not isinstance(design, dict):
+                design = legacy_authored_scene_design(package, content, scene_ids)
+                if design is None:
+                    raise ValueError(
+                        f"playthrough module {module_id!r} has no validated runtime_design"
+                    )
+                legacy_scene_only = True
+            module_key = str(design.get("module_key") or "")
+            if module_key in by_module_key:
+                raise ValueError(f"runtime_design module_key is duplicated: {module_key}")
+            by_module_key[module_key] = module_id
             if not all(scene_ids) or scene_ids != lineage["scene_ids"]:
                 raise ValueError(
                     f"content_lineage scene_ids for {module_id!r} must exactly match "
                     "its Scene Atlas"
                 )
             atlas_scene_ids.update(scene_ids)
-            packs.append((lineage, design, set(scene_ids)))
+            packs.append((lineage, design, set(scene_ids), legacy_scene_only))
+
+        uses_legacy_scene_only = any(
+            legacy_scene_only for _lineage, _design, _scenes, legacy_scene_only in packs
+        )
+        has_design_progress = any(
+            manifest[field] for field in ("front_progress", "thread_progress", "arc_progress")
+        )
+        if uses_legacy_scene_only and has_design_progress:
+            raise ValueError(
+                "legacy authored scene-only compatibility cannot attest front, thread, or arc "
+                "progress"
+            )
 
         design_front_ids: set[str] = set()
         design_thread_ids: set[str] = set()
@@ -2990,7 +3103,7 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         design_arc_ids: set[str] = set()
         arc_opportunity_ids: dict[str, set[str]] = {}
         referenced_scene_ids: set[str] = set()
-        for lineage, design, _owned_scene_ids in packs:
+        for lineage, design, _owned_scene_ids, _legacy_scene_only in packs:
             design_lineage = dict(design.get("lineage") or {})
             root_key = str(design_lineage.get("root_module_key") or "")
             parent_key = str(design_lineage.get("parent_module_key") or "")
@@ -6555,6 +6668,43 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             "branch_id": branch_id,
         }
         scope = f"campaign-event:{campaign_id}:{branch_id}:{principal_id}"
+        if request["event_type"] == "ending":
+            ending_id = str(request["payload"].get("ending_id") or "").strip()
+            if not ending_id:
+                raise ValueError("ending events require payload.ending_id")
+            ending_module_id = str(request["payload"].get("module_id") or "").strip()
+            if ending_module_id:
+                raw_manifest = dict(campaigns.get(campaign_id).state or {}).get(
+                    "playthrough_manifest"
+                )
+                playthrough_module_ids = {
+                    str(item)
+                    for item in (
+                        list(raw_manifest.get("module_ids") or [])
+                        if isinstance(raw_manifest, dict)
+                        else []
+                    )
+                }
+                if ending_module_id not in playthrough_module_ids:
+                    raise ValueError(
+                        f"ending module_id {ending_module_id!r} is not part of the current "
+                        "playthrough manifest"
+                    )
+                contracts = active_ending_pack_contracts(campaign_id)
+                if ending_module_id not in contracts:
+                    raise ValueError(
+                        f"ending module_id {ending_module_id!r} is not an active supported "
+                        "content Pack"
+                    )
+                runtime_classification, declared_ending_ids = contracts[ending_module_id]
+                if (
+                    runtime_classification == "authored_scenario"
+                    and ending_id not in declared_ending_ids
+                ):
+                    raise ValueError(
+                        f"ending {ending_id!r} is not declared by active authored content Pack "
+                        f"{ending_module_id!r}"
+                    )
         replay = replay_response(scope, key, request)
         if replay is not None:
             return replay
