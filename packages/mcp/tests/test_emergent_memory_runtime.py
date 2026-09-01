@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from sagasmith_coc.playthrough import new_playthrough_manifest
+from sagasmith_core import IdempotencyService
 
 from sagasmith_coc_mcp.actor_memory import select_actor_memory_context
 from sagasmith_coc_mcp.config import McpConfig
 from sagasmith_coc_mcp.npc_conversations import normalize_conversation_proposal
 from sagasmith_coc_mcp.server import create_server
+from sagasmith_coc_mcp.storage import SagaSmithStorage
 
 
 async def call(server, name: str, arguments: dict):
@@ -174,6 +176,9 @@ async def install_runtime_pack(
     source_key: str | None = None,
     version: str = "1.0.0",
     activate: bool = True,
+    include_runtime_design: bool = True,
+    pack_classification: str = "scenario",
+    package_id_override: str | None = None,
 ) -> tuple[str, list[str]]:
     source_key = source_key or f"{module_key}.md"
     operation_key = f"{module_key}-{version}".replace(".", "-")
@@ -219,7 +224,7 @@ async def install_runtime_pack(
     decisions = {
         "manifest": {
             "title": module_key,
-            "classification": "scenario",
+            "classification": pack_classification,
             "compatibility": {"editions": ["7e"], "required_capabilities": ["module_pack_v2"]},
             "play_profile": {
                 "investigator_count": {"minimum": 1, "maximum": 4, "source_refs": [receipt]},
@@ -235,7 +240,10 @@ async def install_runtime_pack(
                     "applicability": "None",
                     "source_refs": [receipt],
                 },
-                "solo_play": {"supported": False, "source_refs": [receipt]},
+                "solo_play": {
+                    "supported": pack_classification == "solo_adventure",
+                    "source_refs": [receipt],
+                },
             },
             "continuity": {
                 "series_id": None,
@@ -267,7 +275,7 @@ async def install_runtime_pack(
         },
         "metadata": {"license": "private", "attribution": "Synthetic runtime test"},
         "version": version,
-        "runtime_design": design,
+        **({"runtime_design": design} if include_runtime_design else {}),
     }
     edited = await call(
         server,
@@ -288,7 +296,7 @@ async def install_runtime_pack(
             "campaign_id": campaign_id,
             "data": {
                 "job_id": draft["job_id"],
-                "package_id": f"coc7e.module.{module_key}",
+                "package_id": package_id_override or f"coc7e.module.{module_key}",
                 "confirmation": {"confirmed": True, "note": "Reviewed runtime shard."},
             },
             "expected_revision": edited["job"]["revision"],
@@ -2109,6 +2117,286 @@ def test_playthrough_manifest_rejects_unattested_inactive_and_wrong_runtime_pack
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize("pack_classification", ["scenario", "solo_adventure"])
+def test_legacy_authored_pack_uses_scene_only_manifest_and_declared_endings(
+    tmp_path: Path,
+    pack_classification: str,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        module_key = f"legacy-{pack_classification.replace('_', '-')}"
+        module_id, scene_ids = await install_runtime_pack(
+            server,
+            campaign_id,
+            module_key=module_key,
+            classification="authored_scenario",
+            root_module_key=module_key,
+            include_runtime_design=False,
+            pack_classification=pack_classification,
+        )
+        manifest = new_playthrough_manifest(
+            campaign_line_id=f"{module_key}-line",
+            module_ids=[module_id],
+            campaign_mode="authored_scenario",
+            content_lineage=[
+                {
+                    "module_id": module_id,
+                    "classification": "authored_scenario",
+                    "root_module_id": module_id,
+                    "parent_module_id": "",
+                    "generation": 0,
+                    "scene_ids": scene_ids,
+                    "source_refs": [],
+                }
+            ],
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        wrong_atlas = copy.deepcopy(manifest)
+        wrong_atlas["content_lineage"][0]["scene_ids"] = ["scene:invented"]
+        with pytest.raises(Exception, match="exactly match its Scene Atlas"):
+            await call(
+                server,
+                "playthrough_manifest",
+                {
+                    "action": "initialize",
+                    "campaign_id": campaign_id,
+                    "manifest": wrong_atlas,
+                    "expected_revision": current["revision"],
+                    "idempotency_key": "legacy-wrong-atlas",
+                },
+            )
+        initialized = await call(
+            server,
+            "playthrough_manifest",
+            {
+                "action": "initialize",
+                "campaign_id": campaign_id,
+                "manifest": manifest,
+                "expected_revision": current["revision"],
+                "idempotency_key": "legacy-manifest",
+            },
+        )
+        assert initialized["manifest"]["content_lineage"][0]["scene_ids"] == scene_ids
+
+        forged = copy.deepcopy(initialized["manifest"])
+        forged["arc_progress"] = [
+            {
+                "id": "arc:invented",
+                "actor_id": actor["id"],
+                "actor_kind": "pc",
+                "status": "available",
+                "completed_opportunity_ids": [],
+                "source_ref": None,
+                "evidence_refs": [],
+            }
+        ]
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        with pytest.raises(Exception, match="scene-only compatibility cannot attest"):
+            await call(
+                server,
+                "playthrough_manifest",
+                {
+                    "action": "replace",
+                    "campaign_id": campaign_id,
+                    "manifest": forged,
+                    "expected_revision": current["revision"],
+                    "idempotency_key": "invented-progress",
+                },
+            )
+
+        ending_arguments = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "summary": "The investigation reaches a declared conclusion.",
+                "event_type": "ending",
+                "payload": {
+                    "ending_id": f"ending:{module_key}",
+                    "module_id": module_id,
+                },
+            },
+            "idempotency_key": "declared-ending",
+        }
+        ending = await call(server, "campaign_event", ending_arguments)
+        assert await call(server, "campaign_event", ending_arguments) == ending
+        branch = await call(
+            server, "branch_query", {"action": "current", "campaign_id": campaign_id}
+        )
+
+        def seed_legacy_ending_receipt(
+            *, key: str, summary: str, payload: dict[str, str]
+        ) -> None:
+            request = {
+                "summary": summary,
+                "event_type": "ending",
+                "payload": payload,
+                "audience_scope": "dm",
+                "participants": [],
+                "known_by_actor_ids": [],
+                "knowledge_key": None,
+                "knowledge_proposition": None,
+                "knowledge_disclosure_scope": "owner",
+                "branch_id": branch["branch"]["id"],
+            }
+            scope = (
+                f"campaign-event:{campaign_id}:{branch['branch']['id']}:system:local"
+            )
+            storage = SagaSmithStorage(config(tmp_path))
+            IdempotencyService(storage.database).remember(
+                scope,
+                key,
+                request,
+                {"id": f"historical:{key}"},
+                campaign_id=campaign_id,
+            )
+
+        seed_legacy_ending_receipt(
+            key="missing-ending-id",
+            summary="A malformed ending omits its Pack identity.",
+            payload={},
+        )
+        with pytest.raises(Exception, match="ending events require payload.ending_id"):
+            await call(
+                server,
+                "campaign_event",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "summary": "A malformed ending omits its Pack identity.",
+                        "event_type": "ending",
+                    },
+                    "idempotency_key": "missing-ending-id",
+                },
+            )
+        seed_legacy_ending_receipt(
+            key="invented-ending",
+            summary="This ending is not part of the finalized Pack.",
+            payload={"ending_id": "ending:invented", "module_id": module_id},
+        )
+        with pytest.raises(Exception, match="is not declared by active authored content Pack"):
+            await call(
+                server,
+                "campaign_event",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "summary": "This ending is not part of the finalized Pack.",
+                        "event_type": "ending",
+                        "payload": {
+                            "ending_id": "ending:invented",
+                            "module_id": module_id,
+                        },
+                    },
+                    "idempotency_key": "invented-ending",
+                },
+            )
+        with pytest.raises(Exception, match="is not part of the current playthrough manifest"):
+            await call(
+                server,
+                "campaign_event",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "summary": "This ending claims an unknown Pack.",
+                        "event_type": "ending",
+                        "payload": {
+                            "ending_id": "ending:invented",
+                            "module_id": "module:invented",
+                        },
+                    },
+                    "idempotency_key": "unknown-ending-module",
+                },
+            )
+
+        emergent_arguments = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "summary": "An off-Atlas detour reaches its own new conclusion.",
+                "event_type": "ending",
+                "payload": {"ending_id": "ending:emergent-detour"},
+            },
+            "idempotency_key": "emergent-ending",
+        }
+        emergent_ending = await call(server, "campaign_event", emergent_arguments)
+        assert await call(server, "campaign_event", emergent_arguments) == emergent_ending
+
+        restarted = create_server(config(tmp_path))
+        events = await call(
+            restarted,
+            "campaign_event",
+            {"action": "list", "campaign_id": campaign_id},
+        )
+        assert any(item["id"] == ending["id"] for item in events["events"])
+        assert any(item["id"] == emergent_ending["id"] for item in events["events"])
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "package_id_override",
+    ["coc7e.module.foo/bar", f"coc7e.module.{'a' * 201}"],
+)
+def test_legacy_authored_pack_rejects_invalid_derived_module_key(
+    tmp_path: Path,
+    package_id_override: str,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, _actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        module_id, scene_ids = await install_runtime_pack(
+            server,
+            campaign_id,
+            module_key="legacy-invalid-id",
+            classification="authored_scenario",
+            root_module_key="legacy-invalid-id",
+            include_runtime_design=False,
+            package_id_override=package_id_override,
+        )
+        manifest = new_playthrough_manifest(
+            campaign_line_id="legacy-invalid-id-line",
+            module_ids=[module_id],
+            content_lineage=[
+                {
+                    "module_id": module_id,
+                    "classification": "authored_scenario",
+                    "root_module_id": module_id,
+                    "parent_module_id": "",
+                    "generation": 0,
+                    "scene_ids": scene_ids,
+                    "source_refs": [],
+                }
+            ],
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        with pytest.raises(Exception, match="module_key must be a stable lowercase id"):
+            await call(
+                server,
+                "playthrough_manifest",
+                {
+                    "action": "initialize",
+                    "campaign_id": campaign_id,
+                    "manifest": manifest,
+                    "expected_revision": current["revision"],
+                    "idempotency_key": "invalid-derived-module-key",
+                },
+            )
+
+    asyncio.run(exercise())
+
+
 def test_authored_scenario_can_append_reviewed_off_atlas_episode_without_rewriting_root(
     tmp_path: Path,
 ) -> None:
@@ -2195,6 +2483,21 @@ def test_authored_scenario_can_append_reviewed_off_atlas_episode_without_rewriti
         )
         assert replaced["manifest"]["campaign_mode"] == "authored_with_extensions"
         assert replaced["manifest"]["content_lineage"][0] == original_root
+        ending_arguments = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "summary": "The windmill detour reaches a newly generated conclusion.",
+                "event_type": "ending",
+                "payload": {
+                    "ending_id": "ending:windmill-bargain",
+                    "module_id": extension_id,
+                },
+            },
+            "idempotency_key": "windmill-ending",
+        }
+        ending = await call(server, "campaign_event", ending_arguments)
+        assert await call(server, "campaign_event", ending_arguments) == ending
 
     asyncio.run(exercise())
 
