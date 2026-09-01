@@ -1091,6 +1091,99 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def _actor_knowledge_change_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose actor-knowledge writes as closed, action-specific contracts."""
+
+    schema = deepcopy(dict(parameters))
+    properties = dict(schema.get("properties") or {})
+    data_schema = dict(properties.get("data") or {})
+    data_schema["description"] = (
+        "Action-specific actor knowledge payload. Use the singular source_event_id for the "
+        "event that established this knowledge. The plural source_event_ids field belongs to "
+        "memory_change and is rejected here so provenance cannot be silently discarded. On "
+        "revise, omit source_event_id to preserve the current source or pass null to clear it."
+    )
+    properties["data"] = data_schema
+    schema["properties"] = properties
+
+    shared = {
+        "branch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "proposition": {"type": "string", "minLength": 1, "maxLength": 65536},
+        "epistemic_status": {
+            "enum": [
+                "known",
+                "belief",
+                "rumor",
+                "false_belief",
+                "forgotten",
+                "modified",
+                "superseded",
+            ]
+        },
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 5},
+        "source_event_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Single server-issued campaign event id establishing this knowledge.",
+        },
+        "cause": {"type": "string", "minLength": 1, "maxLength": 256},
+        "disclosure_scope": {"enum": ["dm", "owner", "party", "public", "player"]},
+    }
+    schema["allOf"] = [
+        {
+            "if": {"properties": {"action": {"const": "add"}}, "required": ["action"]},
+            "then": {
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["knowledge_key", "proposition"],
+                        "properties": {
+                            **shared,
+                            "knowledge_key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                            "subject_ref": {
+                                "type": "string",
+                                "maxLength": 512,
+                            },
+                        },
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "revise"}}, "required": ["action"]},
+            "then": {
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["knowledge_id", "expected_revision_id", "proposition"],
+                        "properties": {
+                            **shared,
+                            "knowledge_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                            "expected_revision_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                        },
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+    ]
+    return schema
+
+
 def _page_offset(cursor: str | None) -> int:
     """Decode a server-issued cursor without exposing storage offsets to callers."""
 
@@ -7820,6 +7913,30 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         if not key:
             raise ValueError("idempotency_key is required for actor knowledge writes")
         data = deepcopy(dict(data or {}))
+        allowed_fields = {
+            "branch_id",
+            "proposition",
+            "epistemic_status",
+            "confidence",
+            "source_event_id",
+            "cause",
+            "disclosure_scope",
+            *(
+                {"knowledge_key", "subject_ref"}
+                if action == "add"
+                else {"knowledge_id", "expected_revision_id"}
+            ),
+        }
+        unsupported_fields = sorted(set(data) - allowed_fields)
+        if unsupported_fields:
+            if "source_event_ids" in unsupported_fields:
+                raise ValueError(
+                    "data.source_event_ids is unsupported for actor knowledge; use singular "
+                    "data.source_event_id"
+                )
+            raise ValueError(
+                "unsupported actor knowledge data fields: " + ", ".join(unsupported_fields)
+            )
         branch_id = writable_branch_id(campaign_id, data.get("branch_id"))
         request = {**data, "action": action, "actor_id": actor_id, "branch_id": branch_id}
         scope = f"actor-knowledge:{campaign_id}:{branch_id}:{principal_id}:{actor_id}"
@@ -7854,21 +7971,24 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             raise PermissionError("knowledge item belongs to another actor")
         if not data.get("expected_revision_id"):
             raise ValueError("data.expected_revision_id is required for knowledge revisions")
-        return asdict(
-            knowledge.revise(
-                item.id,
-                proposition=str(data.get("proposition") or ""),
-                epistemic_status=str(data.get("epistemic_status") or "known"),
-                confidence=int(data.get("confidence", 3)),
-                source_event_id=data.get("source_event_id"),
-                cause=str(data.get("cause") or "told_by"),
-                disclosure_scope=str(data.get("disclosure_scope") or "dm"),
-                branch_id=branch_id,
-                expected_revision_id=str(data["expected_revision_id"]),
-                idempotency_key=key,
-                idempotency_write=atomic_write,
-            )
-        )
+        revision_arguments = {
+            "proposition": str(data.get("proposition") or ""),
+            "epistemic_status": (
+                str(data["epistemic_status"]) if "epistemic_status" in data else None
+            ),
+            "confidence": int(data["confidence"]) if "confidence" in data else None,
+            "cause": str(data["cause"]) if "cause" in data else None,
+            "disclosure_scope": (
+                str(data["disclosure_scope"]) if "disclosure_scope" in data else None
+            ),
+            "branch_id": branch_id,
+            "expected_revision_id": str(data["expected_revision_id"]),
+            "idempotency_key": key,
+            "idempotency_write": atomic_write,
+        }
+        if "source_event_id" in data:
+            revision_arguments["source_event_id"] = data["source_event_id"]
+        return asdict(knowledge.revise(item.id, **revision_arguments))
 
     @mcp.tool()
     def branch_query(
@@ -10518,6 +10638,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 parameter_schema.setdefault("maxItems", _MAX_COLLECTION_ITEMS)
         if tool_name == "module_draft":
             parameters = _module_draft_parameters(parameters)
+        elif tool_name == "actor_knowledge_change":
+            parameters = _actor_knowledge_change_parameters(parameters)
         registered_tool.parameters = parameters
         registered_tool.__dict__.pop("output_schema", None)
         registered_tool.fn_metadata.output_schema = _output_schema(tool_name)

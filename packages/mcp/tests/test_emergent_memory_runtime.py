@@ -5,6 +5,7 @@ import copy
 from pathlib import Path
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from sagasmith_coc.playthrough import new_playthrough_manifest
 
 from sagasmith_coc_mcp.actor_memory import select_actor_memory_context
@@ -962,6 +963,113 @@ def test_memory_change_campaign_revision_guard_uses_core_atomic_contract(tmp_pat
             server, "memory_change", {**retract, "expected_revision": expected_revision}
         )
         assert retracted["status"] == "retracted"
+
+    asyncio.run(exercise())
+
+
+def test_actor_knowledge_plural_provenance_is_rejected_atomically_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        before = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+
+        with pytest.raises(ToolError, match="use singular data.source_event_id"):
+            await server.call_tool(
+                "actor_knowledge_change",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "actor_id": actor["id"],
+                    "data": {
+                        "knowledge_key": "plural-provenance",
+                        "proposition": "The breakwater bell marks the hidden channel.",
+                        "source_event_ids": ["event-forged-a", "event-forged-b"],
+                    },
+                    "idempotency_key": "reject-plural-provenance",
+                },
+            )
+        after = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        assert after["revision"] == before["revision"]
+        empty = await call(
+            server,
+            "actor_knowledge_query",
+            {"action": "list", "campaign_id": campaign_id, "actor_id": actor["id"]},
+        )
+        assert empty["knowledge"] == []
+
+        event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "Dr Hale deciphers the breakwater bell signal.",
+                    "audience_scope": "public",
+                    "participants": [{"actor_id": actor["id"], "role": "witness"}],
+                },
+                "idempotency_key": "breakwater-bell-event",
+            },
+        )
+        knowledge = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_key": "breakwater-bell",
+                    "proposition": "The breakwater bell marks the hidden channel.",
+                    "source_event_id": event["id"],
+                    "disclosure_scope": "owner",
+                },
+                "idempotency_key": "add-breakwater-bell-knowledge",
+            },
+        )
+        assert knowledge["source_event_id"] == event["id"]
+        revised = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "revise",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_id": knowledge["id"],
+                    "expected_revision_id": knowledge["revision_id"],
+                    "proposition": "The second breakwater bell marks the hidden channel.",
+                    "epistemic_status": "modified",
+                },
+                "idempotency_key": "revise-breakwater-bell-knowledge",
+            },
+        )
+        assert revised["source_event_id"] == event["id"]
+        assert revised["confidence"] == knowledge["confidence"]
+        assert revised["cause"] == knowledge["cause"]
+        assert revised["disclosure_scope"] == knowledge["disclosure_scope"]
+
+        restarted = create_server(config(tmp_path))
+        restored = await call(
+            restarted,
+            "actor_knowledge_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {"include_inactive": True},
+            },
+        )
+        assert len(restored["knowledge"]) == 1
+        assert restored["knowledge"][0]["source_event_id"] == event["id"]
+        assert restored["knowledge"][0]["revision_id"] == revised["revision_id"]
 
     asyncio.run(exercise())
 
