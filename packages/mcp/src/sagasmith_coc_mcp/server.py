@@ -2956,7 +2956,11 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             return None
         package_id = str(package.get("id") or "").strip().casefold()
         prefix = "coc7e.module."
-        module_key = package_id.removeprefix(prefix) if package_id.startswith(prefix) else ""
+        module_key = (
+            package_id.removeprefix(prefix).replace(".", "-")
+            if package_id.startswith(prefix)
+            else ""
+        )
         if not module_key:
             return None
         design = {

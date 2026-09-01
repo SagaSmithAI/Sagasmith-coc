@@ -2343,6 +2343,82 @@ def test_legacy_authored_pack_uses_scene_only_manifest_and_declared_endings(
 
 
 @pytest.mark.parametrize(
+    ("pack_classification", "package_id_override"),
+    [
+        ("solo_adventure", "coc7e.module.alone-against-the-flames.private"),
+        ("scenario", "coc7e.module.the-lightless-beacon.private"),
+    ],
+)
+def test_legacy_current_private_pack_ids_derive_stable_runtime_keys(
+    tmp_path: Path,
+    pack_classification: str,
+    package_id_override: str,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, _actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        module_id, scene_ids = await install_runtime_pack(
+            server,
+            campaign_id,
+            module_key="current-private-pack-shape",
+            classification="authored_scenario",
+            root_module_key="current-private-pack-shape",
+            include_runtime_design=False,
+            pack_classification=pack_classification,
+            package_id_override=package_id_override,
+        )
+        manifest = new_playthrough_manifest(
+            campaign_line_id="current-private-pack-line",
+            module_ids=[module_id],
+            campaign_mode="authored_scenario",
+            content_lineage=[
+                {
+                    "module_id": module_id,
+                    "classification": "authored_scenario",
+                    "root_module_id": module_id,
+                    "parent_module_id": "",
+                    "generation": 0,
+                    "scene_ids": scene_ids,
+                    "source_refs": [],
+                }
+            ],
+        )
+        current = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        initialized = await call(
+            server,
+            "playthrough_manifest",
+            {
+                "action": "initialize",
+                "campaign_id": campaign_id,
+                "manifest": manifest,
+                "expected_revision": current["revision"],
+                "idempotency_key": "current-private-pack-manifest",
+            },
+        )
+        assert initialized["manifest"]["module_ids"] == [module_id]
+        ending_arguments = {
+            "action": "add",
+            "campaign_id": campaign_id,
+            "data": {
+                "summary": "The current private Pack reaches its declared conclusion.",
+                "event_type": "ending",
+                "payload": {
+                    "ending_id": "ending:current-private-pack-shape",
+                    "module_id": module_id,
+                },
+            },
+            "idempotency_key": "current-private-pack-ending",
+        }
+        ending = await call(server, "campaign_event", ending_arguments)
+        assert await call(server, "campaign_event", ending_arguments) == ending
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
     "package_id_override",
     ["coc7e.module.foo/bar", f"coc7e.module.{'a' * 201}"],
 )
