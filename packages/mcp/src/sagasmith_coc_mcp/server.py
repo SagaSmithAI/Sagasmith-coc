@@ -1091,6 +1091,102 @@ def _module_draft_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def _actor_knowledge_change_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose actor-knowledge writes as closed, action-specific contracts."""
+
+    schema = deepcopy(dict(parameters))
+    properties = dict(schema.get("properties") or {})
+    data_schema = dict(properties.get("data") or {})
+    data_schema["description"] = (
+        "Action-specific actor knowledge payload. Use the singular source_event_id for the "
+        "event that established this knowledge. The plural source_event_ids field belongs to "
+        "memory_change and is rejected here so provenance cannot be silently discarded. On "
+        "revise, omit source_event_id to preserve the current source or pass null to clear it."
+    )
+    properties["data"] = data_schema
+    schema["properties"] = properties
+
+    shared = {
+        "branch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "proposition": {"type": "string", "minLength": 1, "maxLength": 65536},
+        "epistemic_status": {
+            "enum": [
+                "known",
+                "belief",
+                "rumor",
+                "false_belief",
+                "forgotten",
+                "modified",
+                "superseded",
+            ]
+        },
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 5},
+        "source_event_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 256,
+            "description": (
+                "Single server-issued, branch-visible campaign event id establishing this "
+                "knowledge. Keeper-only events can back only dm-scoped knowledge."
+            ),
+        },
+        "cause": {"type": "string", "minLength": 1, "maxLength": 256},
+        "disclosure_scope": {"enum": ["dm", "owner", "party", "public", "player"]},
+    }
+    schema["allOf"] = [
+        {
+            "if": {"properties": {"action": {"const": "add"}}, "required": ["action"]},
+            "then": {
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["knowledge_key", "proposition"],
+                        "properties": {
+                            **shared,
+                            "knowledge_key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                            "subject_ref": {
+                                "type": "string",
+                                "maxLength": 512,
+                            },
+                        },
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "revise"}}, "required": ["action"]},
+            "then": {
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": ["knowledge_id", "expected_revision_id", "proposition"],
+                        "properties": {
+                            **shared,
+                            "knowledge_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                            "expected_revision_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                            },
+                        },
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+    ]
+    return schema
+
+
 def _page_offset(cursor: str | None) -> int:
     """Decode a server-issued cursor without exposing storage offsets to callers."""
 
@@ -5968,6 +6064,37 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         )
         return {"memories": page, "next_cursor": next_cursor, "has_more": has_more}
 
+    def visible_branch_events(
+        campaign_id: str,
+        *,
+        branch_id: str,
+        event_ids: set[str],
+        field: str,
+    ) -> dict[str, Any]:
+        visible: dict[str, Any] = {}
+        offset = 0
+        while event_ids - set(visible):
+            if offset > 100_000:
+                break
+            page = events.list(
+                campaign_id,
+                branch_id=branch_id,
+                limit=500,
+                offset=offset,
+            )
+            for event in page:
+                if event.id in event_ids:
+                    visible[event.id] = event
+            if len(page) < 500:
+                break
+            offset += 500
+        if unavailable := sorted(event_ids - set(visible)):
+            raise ValueError(
+                f"{field} contains events unavailable in campaign branch {branch_id}: "
+                f"{unavailable}"
+            )
+        return visible
+
     def validate_memory_source_events(
         campaign_id: str,
         *,
@@ -5990,28 +6117,12 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         if not requested:
             return
 
-        visible: dict[str, Any] = {}
-        offset = 0
-        while requested - set(visible):
-            if offset > 100_000:
-                break
-            page = events.list(
-                campaign_id,
-                branch_id=branch_id,
-                limit=500,
-                offset=offset,
-            )
-            for event in page:
-                if event.id in requested:
-                    visible[event.id] = event
-            if len(page) < 500:
-                break
-            offset += 500
-        if unavailable := sorted(requested - set(visible)):
-            raise ValueError(
-                f"{field} contains events unavailable in campaign branch {branch_id}: "
-                f"{unavailable}"
-            )
+        visible = visible_branch_events(
+            campaign_id,
+            branch_id=branch_id,
+            event_ids=requested,
+            field=field,
+        )
 
         if disclosure_scope != "dm":
             permitted = {"public", "party", "player"}
@@ -6025,6 +6136,52 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                     f"{field} contains events not visible to {disclosure_scope!r} memory: "
                     f"{restricted}"
                 )
+
+    def validate_actor_knowledge_source_event(
+        campaign_id: str,
+        *,
+        actor_id: str,
+        branch_id: str,
+        source_event_id: Any,
+        disclosure_scope: str,
+        current_source_event_id: str | None = None,
+        field: str = "data.source_event_id",
+    ) -> None:
+        """Prevent Keeper-only chronology from backing player-readable knowledge."""
+
+        if source_event_id is None:
+            return
+        if not isinstance(source_event_id, str) or not source_event_id.strip():
+            raise ValueError(f"{field} must be a non-empty string or null")
+        event_id = source_event_id.strip()
+        event = visible_branch_events(
+            campaign_id,
+            branch_id=branch_id,
+            event_ids={event_id},
+            field=field,
+        )[event_id]
+        if disclosure_scope == "dm" or event.audience_scope in {"public", "party", "player"}:
+            return
+        participant_ids = {
+            str(item.get("actor_id") or "") for item in event.participants or []
+        }
+        if event.audience_scope == "actor" and (
+            actor_id in participant_ids or event_id == current_source_event_id
+        ):
+            return
+        raise PermissionError(
+            f"{field} event {event_id} with audience {event.audience_scope!r} cannot back "
+            f"{disclosure_scope!r} actor knowledge"
+        )
+
+    def validate_new_event_knowledge_audience(
+        *, audience_scope: str, disclosure_scope: str, field: str
+    ) -> None:
+        if disclosure_scope != "dm" and audience_scope == "dm":
+            raise PermissionError(
+                f"{field} cannot publish {disclosure_scope!r} actor knowledge from a "
+                "Keeper-only event"
+            )
 
     @mcp.tool()
     def memory_change(
@@ -6148,6 +6305,19 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                         "data.actor_knowledge"
                         f"[{index}].expected_revision_id is required for revisions"
                     )
+                disclosure_scope = str(item.get("disclosure_scope") or "dm")
+                if str(item.get("action") or "add") == "revise" and not item.get(
+                    "disclosure_scope"
+                ):
+                    current = knowledge.get(
+                        str(item.get("knowledge_id") or ""), branch_id=branch_id
+                    )
+                    disclosure_scope = current.disclosure_scope
+                validate_new_event_knowledge_audience(
+                    audience_scope=str(event_data.get("audience_scope") or "dm"),
+                    disclosure_scope=disclosure_scope,
+                    field=f"data.actor_knowledge[{index}]",
+                )
             return continuity_commits.commit(
                 campaign_id,
                 event=event_data,
@@ -6388,6 +6558,12 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         replay = replay_response(scope, key, request)
         if replay is not None:
             return replay
+        if known_by_actor_ids:
+            validate_new_event_knowledge_audience(
+                audience_scope=audience_scope,
+                disclosure_scope=request["knowledge_disclosure_scope"],
+                field="data.knowledge_disclosure_scope",
+            )
         atomic_write = IdempotencyWrite(
             scope=scope,
             payload=request,
@@ -7820,6 +7996,30 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
         if not key:
             raise ValueError("idempotency_key is required for actor knowledge writes")
         data = deepcopy(dict(data or {}))
+        allowed_fields = {
+            "branch_id",
+            "proposition",
+            "epistemic_status",
+            "confidence",
+            "source_event_id",
+            "cause",
+            "disclosure_scope",
+            *(
+                {"knowledge_key", "subject_ref"}
+                if action == "add"
+                else {"knowledge_id", "expected_revision_id"}
+            ),
+        }
+        unsupported_fields = sorted(set(data) - allowed_fields)
+        if unsupported_fields:
+            if "source_event_ids" in unsupported_fields:
+                raise ValueError(
+                    "data.source_event_ids is unsupported for actor knowledge; use singular "
+                    "data.source_event_id"
+                )
+            raise ValueError(
+                "unsupported actor knowledge data fields: " + ", ".join(unsupported_fields)
+            )
         branch_id = writable_branch_id(campaign_id, data.get("branch_id"))
         request = {**data, "action": action, "actor_id": actor_id, "branch_id": branch_id}
         scope = f"actor-knowledge:{campaign_id}:{branch_id}:{principal_id}:{actor_id}"
@@ -7832,6 +8032,13 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             response=lambda result: asdict(result),
         )
         if action == "add":
+            validate_actor_knowledge_source_event(
+                campaign_id,
+                actor_id=actor_id,
+                branch_id=branch_id,
+                source_event_id=data.get("source_event_id"),
+                disclosure_scope=str(data.get("disclosure_scope") or "dm"),
+            )
             return asdict(
                 knowledge.add(
                     campaign_id,
@@ -7854,21 +8061,40 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
             raise PermissionError("knowledge item belongs to another actor")
         if not data.get("expected_revision_id"):
             raise ValueError("data.expected_revision_id is required for knowledge revisions")
-        return asdict(
-            knowledge.revise(
-                item.id,
-                proposition=str(data.get("proposition") or ""),
-                epistemic_status=str(data.get("epistemic_status") or "known"),
-                confidence=int(data.get("confidence", 3)),
-                source_event_id=data.get("source_event_id"),
-                cause=str(data.get("cause") or "told_by"),
-                disclosure_scope=str(data.get("disclosure_scope") or "dm"),
-                branch_id=branch_id,
-                expected_revision_id=str(data["expected_revision_id"]),
-                idempotency_key=key,
-                idempotency_write=atomic_write,
-            )
+        resolved_source_event_id = (
+            data["source_event_id"] if "source_event_id" in data else item.source_event_id
         )
+        resolved_disclosure_scope = (
+            str(data["disclosure_scope"])
+            if "disclosure_scope" in data
+            else item.disclosure_scope
+        )
+        validate_actor_knowledge_source_event(
+            campaign_id,
+            actor_id=actor_id,
+            branch_id=branch_id,
+            source_event_id=resolved_source_event_id,
+            disclosure_scope=resolved_disclosure_scope,
+            current_source_event_id=item.source_event_id,
+        )
+        revision_arguments = {
+            "proposition": str(data.get("proposition") or ""),
+            "epistemic_status": (
+                str(data["epistemic_status"]) if "epistemic_status" in data else None
+            ),
+            "confidence": int(data["confidence"]) if "confidence" in data else None,
+            "cause": str(data["cause"]) if "cause" in data else None,
+            "disclosure_scope": (
+                str(data["disclosure_scope"]) if "disclosure_scope" in data else None
+            ),
+            "branch_id": branch_id,
+            "expected_revision_id": str(data["expected_revision_id"]),
+            "idempotency_key": key,
+            "idempotency_write": atomic_write,
+        }
+        if "source_event_id" in data:
+            revision_arguments["source_event_id"] = data["source_event_id"]
+        return asdict(knowledge.revise(item.id, **revision_arguments))
 
     @mcp.tool()
     def branch_query(
@@ -10518,6 +10744,8 @@ def create_server(config: McpConfig | None = None) -> MCPServer:
                 parameter_schema.setdefault("maxItems", _MAX_COLLECTION_ITEMS)
         if tool_name == "module_draft":
             parameters = _module_draft_parameters(parameters)
+        elif tool_name == "actor_knowledge_change":
+            parameters = _actor_knowledge_change_parameters(parameters)
         registered_tool.parameters = parameters
         registered_tool.__dict__.pop("output_schema", None)
         registered_tool.fn_metadata.output_schema = _output_schema(tool_name)

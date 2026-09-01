@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,6 +56,56 @@ def test_character_change_data_contract_advertises_nested_guards(tmp_path: Path)
         assert "expected_campaign_revision" in description
         assert "character_type" in description
         assert "expected_revision" in description
+
+    asyncio.run(exercise())
+
+
+def test_actor_knowledge_change_contract_rejects_plural_event_provenance(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        tools = await _server(tmp_path).list_tools()
+        change = next(tool for tool in tools if tool.name == "actor_knowledge_change")
+        schema = change.input_schema
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+        description = schema["properties"]["data"]["description"]
+        assert "singular source_event_id" in description
+        assert "memory_change" in description
+        assert "omit source_event_id to preserve" in description
+        source_description = schema["allOf"][0]["then"]["properties"]["data"][
+            "properties"
+        ]["source_event_id"]["description"]
+        assert "Keeper-only events can back only dm-scoped knowledge" in source_description
+
+        add = {
+            "action": "add",
+            "campaign_id": "campaign-1",
+            "actor_id": "actor-1",
+            "data": {
+                "knowledge_key": "lantern-code",
+                "proposition": "The lantern code is three short flashes.",
+                "source_event_id": "event-1",
+            },
+            "idempotency_key": "knowledge-add-1",
+        }
+        assert list(validator.iter_errors(add)) == []
+        plural = copy.deepcopy(add)
+        plural["data"].pop("source_event_id")
+        plural["data"]["source_event_ids"] = ["event-1", "event-2"]
+        assert list(validator.iter_errors(plural))
+
+        revise = {
+            **add,
+            "action": "revise",
+            "data": {
+                "knowledge_id": "knowledge-1",
+                "expected_revision_id": "revision-1",
+                "proposition": "The lantern code is two long flashes.",
+            },
+            "idempotency_key": "knowledge-revise-1",
+        }
+        assert list(validator.iter_errors(revise)) == []
 
     asyncio.run(exercise())
 

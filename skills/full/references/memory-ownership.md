@@ -89,6 +89,9 @@ transaction.
 An actor's private discovery becomes party/public only through a realized
 sharing event. Do not copy private knowledge merely because actors occupy the
 same scene; the Agent decides perception, hearing, language, and comprehension.
+Player-visible ActorKnowledge must never cite a Keeper-only event. First record
+an actor-, party-, player-, or public-audience event that realizes how the actor
+learned or shared it, then use that event as the knowledge source.
 
 ## Fact revision
 
@@ -103,6 +106,10 @@ same scene; the Agent decides perception, hearing, language, and comprehension.
 - Keep each investigator, NPC, and creature independent.
 - Use stable knowledge_key and subject_ref.
 - Record epistemic status, confidence, cause, disclosure scope, and source event.
+- Direct `actor_knowledge_change` writes accept one `source_event_id`; plural
+  `source_event_ids` belongs to objective `memory_change` facts. On a knowledge
+  revision, omit `source_event_id` to preserve its current provenance and pass
+  explicit `null` only when the Keeper intends to clear it.
 - Revising knowledge requires the exact knowledge item and revision guard.
 - Use `forgotten` or `superseded` to retire ActorKnowledge without deleting its
   branch history; ordinary reads exclude those statuses unless the Keeper
