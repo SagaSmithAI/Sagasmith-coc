@@ -73,6 +73,10 @@ def test_actor_knowledge_change_contract_rejects_plural_event_provenance(
         assert "singular source_event_id" in description
         assert "memory_change" in description
         assert "omit source_event_id to preserve" in description
+        source_description = schema["allOf"][0]["then"]["properties"]["data"][
+            "properties"
+        ]["source_event_id"]["description"]
+        assert "Keeper-only events can back only dm-scoped knowledge" in source_description
 
         add = {
             "action": "add",

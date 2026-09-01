@@ -89,6 +89,9 @@ transaction.
 An actor's private discovery becomes party/public only through a realized
 sharing event. Do not copy private knowledge merely because actors occupy the
 same scene; the Agent decides perception, hearing, language, and comprehension.
+Player-visible ActorKnowledge must never cite a Keeper-only event. First record
+an actor-, party-, player-, or public-audience event that realizes how the actor
+learned or shared it, then use that event as the knowledge source.
 
 ## Fact revision
 

@@ -692,7 +692,10 @@ def test_memory_and_actor_knowledge_search_paginate_beyond_one_hundred(
                 "action": "commit",
                 "campaign_id": campaign_id,
                 "data": {
-                    "event": {"summary": "Install pagination fixtures."},
+                    "event": {
+                        "summary": "Install pagination fixtures.",
+                        "audience_scope": "actor",
+                    },
                     "facts": facts,
                     "actor_knowledge": actor_knowledge,
                 },
@@ -1070,6 +1073,213 @@ def test_actor_knowledge_plural_provenance_is_rejected_atomically_and_survives_r
         assert len(restored["knowledge"]) == 1
         assert restored["knowledge"][0]["source_event_id"] == event["id"]
         assert restored["knowledge"][0]["revision_id"] == revised["revision_id"]
+
+    asyncio.run(exercise())
+
+
+def test_keeper_only_events_cannot_back_player_visible_actor_knowledge(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        server = create_server(config(tmp_path))
+        campaign, actor = await campaign_and_actor(server)
+        campaign_id = campaign["id"]
+        keeper_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "Keeper secret: the lighthouse signal opens the vault.",
+                    "audience_scope": "dm",
+                },
+                "idempotency_key": "keeper-only-lighthouse-event",
+            },
+        )
+        before = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        with pytest.raises(ToolError, match="cannot back 'party' actor knowledge"):
+            await call(
+                server,
+                "actor_knowledge_change",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "actor_id": actor["id"],
+                    "data": {
+                        "knowledge_key": "private-leak",
+                        "proposition": "The lighthouse signal opens the vault.",
+                        "source_event_id": keeper_event["id"],
+                        "disclosure_scope": "party",
+                    },
+                    "idempotency_key": "reject-private-leak",
+                },
+            )
+        after = await call(
+            server, "campaign_query", {"action": "get", "campaign_id": campaign_id}
+        )
+        assert after["revision"] == before["revision"]
+
+        keeper_knowledge = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_key": "keeper-secret",
+                    "proposition": "The lighthouse signal opens the vault.",
+                    "source_event_id": keeper_event["id"],
+                    "disclosure_scope": "dm",
+                },
+                "idempotency_key": "add-keeper-secret",
+            },
+        )
+        with pytest.raises(ToolError, match="cannot back 'party' actor knowledge"):
+            await call(
+                server,
+                "actor_knowledge_change",
+                {
+                    "action": "revise",
+                    "campaign_id": campaign_id,
+                    "actor_id": actor["id"],
+                    "data": {
+                        "knowledge_id": keeper_knowledge["id"],
+                        "expected_revision_id": keeper_knowledge["revision_id"],
+                        "proposition": keeper_knowledge["proposition"],
+                        "disclosure_scope": "party",
+                    },
+                    "idempotency_key": "reject-keeper-secret-promotion",
+                },
+            )
+        unchanged = await call(
+            server,
+            "actor_knowledge_query",
+            {"action": "list", "campaign_id": campaign_id, "actor_id": actor["id"]},
+        )
+        assert unchanged["knowledge"][0]["revision_id"] == keeper_knowledge["revision_id"]
+        player_before = await call(
+            server,
+            "actor_knowledge_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "principal_id": "player:hale",
+            },
+        )
+        assert player_before["knowledge"] == []
+
+        actor_event = await call(
+            server,
+            "campaign_event",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "data": {
+                    "summary": "Dr Hale hears three lighthouse flashes.",
+                    "audience_scope": "actor",
+                    "participants": [{"actor_id": actor["id"], "role": "witness"}],
+                },
+                "idempotency_key": "actor-lighthouse-event",
+            },
+        )
+        visible = await call(
+            server,
+            "actor_knowledge_change",
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "data": {
+                    "knowledge_key": "heard-lighthouse-signal",
+                    "proposition": "The lighthouse flashed three times.",
+                    "source_event_id": actor_event["id"],
+                    "disclosure_scope": "owner",
+                },
+                "idempotency_key": "add-heard-lighthouse-signal",
+            },
+        )
+        player_visible = await call(
+            server,
+            "actor_knowledge_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "principal_id": "player:hale",
+            },
+        )
+        assert [item["id"] for item in player_visible["knowledge"]] == [visible["id"]]
+
+        events_before = await call(
+            server, "campaign_event", {"action": "list", "campaign_id": campaign_id}
+        )
+        with pytest.raises(ToolError, match="Keeper-only event"):
+            await call(
+                server,
+                "campaign_event",
+                {
+                    "action": "add",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "summary": "Keeper-only automatic knowledge leak.",
+                        "audience_scope": "dm",
+                        "known_by_actor_ids": [actor["id"]],
+                        "knowledge_key": "automatic-private-leak",
+                        "knowledge_proposition": "The vault is below the lighthouse.",
+                        "knowledge_disclosure_scope": "owner",
+                    },
+                    "idempotency_key": "reject-automatic-private-leak",
+                },
+            )
+        with pytest.raises(ToolError, match="Keeper-only event"):
+            await call(
+                server,
+                "memory_change",
+                {
+                    "action": "commit",
+                    "campaign_id": campaign_id,
+                    "data": {
+                        "event": {
+                            "summary": "Keeper-only committed knowledge leak.",
+                            "audience_scope": "dm",
+                        },
+                        "facts": [],
+                        "actor_knowledge": [
+                            {
+                                "actor_id": actor["id"],
+                                "knowledge_key": "committed-private-leak",
+                                "proposition": "The vault is below the lighthouse.",
+                                "disclosure_scope": "owner",
+                            }
+                        ],
+                    },
+                    "idempotency_key": "reject-committed-private-leak",
+                },
+            )
+        events_after = await call(
+            server, "campaign_event", {"action": "list", "campaign_id": campaign_id}
+        )
+        assert [item["id"] for item in events_after["events"]] == [
+            item["id"] for item in events_before["events"]
+        ]
+
+        restarted = create_server(config(tmp_path))
+        restored_player = await call(
+            restarted,
+            "actor_knowledge_query",
+            {
+                "action": "list",
+                "campaign_id": campaign_id,
+                "actor_id": actor["id"],
+                "principal_id": "player:hale",
+            },
+        )
+        assert [item["id"] for item in restored_player["knowledge"]] == [visible["id"]]
 
     asyncio.run(exercise())
 
