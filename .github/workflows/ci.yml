@@ -75,6 +75,8 @@ jobs:
         run: >-
           python skills/coc-module-generator/scripts/validate_skill.py
           skills/coc-module-generator
+      - name: Test portable module ingestion
+        run: python -m unittest discover -s skills/tests
 
   ui:
     runs-on: ubuntu-latest
